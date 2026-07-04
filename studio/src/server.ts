@@ -18,21 +18,45 @@ export function buildServer() {
   app.use(express.json({ limit: "6mb" }));
   app.use(cookieParser());
 
+  // Baseline hardening headers (CSP omitted deliberately: GIS + fonts + data:
+  // images make a strict policy brittle; these cover the cheap wins).
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+  });
+
+  // Micro-cache for the two hot public reads: a traffic spike (everyone
+  // polling status + loading the gallery) must not translate 1:1 into
+  // database queries on a small Postgres.
+  const microCache = new Map<string, { body: unknown; at: number }>();
+  const cached = async <T>(key: string, ttlMs: number, fill: () => Promise<T>): Promise<T> => {
+    const hit = microCache.get(key);
+    if (hit && Date.now() - hit.at < ttlMs) return hit.body as T;
+    const body = await fill();
+    microCache.set(key, { body, at: Date.now() });
+    return body;
+  };
+
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true });
   });
 
   app.get("/api/status", async (_req, res) => {
+    const dbBits = await cached("status-db", 5_000, async () => ({
+      queueLength: await q.queueLength(),
+      spend24h: await q.spend24h(),
+    }));
     res.json({
       hasKey: hasKey(),
       phase: state.phase,
       currentPieceId: state.currentPieceId,
-      queueLength: await q.queueLength(),
       models: config.models,
       maxIterations: config.maxIterations,
       phaseSince: state.phaseSince,
       autoCreateIntervalMin: config.autoCreateIntervalMin,
-      spend24h: await q.spend24h(),
+      ...dbBits,
     });
   });
 
@@ -144,6 +168,11 @@ export function buildServer() {
 
   app.get("/api/pieces", async (req, res) => {
     const status = typeof req.query.status === "string" ? req.query.status : "approved";
+    if (status === "approved") {
+      // The gallery's hot path — cache briefly and let clients revalidate.
+      res.setHeader("Cache-Control", "public, max-age=20");
+      return res.json(await cached("pieces-approved", 15_000, () => q.listPieces("approved")));
+    }
     const rows = await q.listPieces(status === "all" ? undefined : status);
     res.json(rows);
   });
@@ -227,7 +256,13 @@ export function buildServer() {
 
   // ── Live studio feed (SSE) ────────────────────────────────────────
 
+  let sseClients = 0;
+  const SSE_MAX = 300; // studio-floor watchers; beyond this, politely refuse
   app.get("/api/stream", async (req, res) => {
+    if (sseClients >= SSE_MAX) {
+      return res.status(503).json({ error: "The studio floor is at capacity — try again shortly." });
+    }
+    sseClients++;
     res.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
@@ -253,6 +288,7 @@ export function buildServer() {
     const off = onStudio((ev) => send("studio", ev));
     const heartbeat = setInterval(() => res.write(": hb\n\n"), 25_000);
     req.on("close", () => {
+      sseClients--;
       off();
       clearInterval(heartbeat);
     });
