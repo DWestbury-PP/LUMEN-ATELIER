@@ -1,0 +1,11 @@
+{
+  "name": "lumen-renderer",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Headless WebGL2 frame-capture service for Lumen Atelier — compiles GLSL and returns rendered frames so the Critic can see.",
+  "main": "server.js",
+  "dependencies": {
+    "puppeteer-core": "^25.3.0"
+  }
+}

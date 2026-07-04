@@ -1,0 +1,23 @@
+{
+  "name": "lumen-studio",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lumen Atelier studio orchestrator — the Muse, the Artisan, and the Critic.",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,57 @@
+name: lumen-atelier
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lumen
+      POSTGRES_PASSWORD: lumen
+      POSTGRES_DB: lumen
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lumen -d lumen"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  renderer:
+    build: ./renderer
+    restart: unless-stopped
+    init: true
+    environment:
+      PORT: "8282"
+
+  studio:
+    build: ./studio
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      renderer:
+        condition: service_started
+    environment:
+      PORT: "8181"
+      DATABASE_URL: postgres://lumen:lumen@db:5432/lumen
+      RENDERER_URL: http://renderer:8282
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      MUSE_MODEL: ${MUSE_MODEL:-claude-haiku-4-5}
+      ARTISAN_MODEL: ${ARTISAN_MODEL:-claude-sonnet-5}
+      CRITIC_MODEL: ${CRITIC_MODEL:-claude-opus-4-8}
+      AUTO_CREATE: ${AUTO_CREATE:-true}
+      AUTO_CREATE_INTERVAL_MIN: ${AUTO_CREATE_INTERVAL_MIN:-45}
+      MAX_ITERATIONS: ${MAX_ITERATIONS:-4}
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on:
+      - studio
+    ports:
+      - "7777:80"
+
+volumes:
+  db-data:
