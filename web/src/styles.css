@@ -149,7 +149,7 @@ button { font-family: inherit; }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
   gap: 34px;
 }
 
@@ -429,3 +429,73 @@ footer.colophon a { color: var(--ink-dim); border-bottom: 1px solid var(--gold-f
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #26262e; border-radius: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+
+/* ── Mobile (fidget wonder mode) ─────────────────────────────── */
+
+@media (max-width: 720px) {
+  .site { padding: 0 16px 64px; }
+
+  .masthead {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 18px 0 14px;
+  }
+  .wordmark { font-size: 21px; letter-spacing: 0.12em; }
+  .nav {
+    width: 100%;
+    gap: 14px;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+  .nav .btn { padding: 8px 14px; font-size: 10.5px; letter-spacing: 0.14em; margin-left: auto; }
+  .account img { width: 22px; height: 22px; }
+
+  .hero { padding: 34px 0 22px; }
+  .hero p { font-size: 14.5px; }
+
+  .ribbon { flex-wrap: wrap; font-size: 11.5px; padding: 10px 14px; row-gap: 6px; }
+  .ribbon a { margin-left: 0; width: 100%; }
+
+  .grid { gap: 22px; }
+  .section-label { margin: 34px 0 16px; }
+
+  .piece-hero { margin-top: 24px; }
+  .piece-info { margin-top: 24px; gap: 28px; }
+  .piece-info h1 { font-size: 29px; }
+  .statement { font-size: 14.5px; }
+
+  .iteration { padding: 16px 16px; }
+  .iteration header { row-gap: 8px; }
+  .iteration .scores {
+    margin-left: 0;
+    width: 100%;
+    order: 5;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .iteration .thumbs img { width: calc(50% - 5px); }
+
+  .floor { gap: 22px; margin-top: 24px; }
+  .feed { max-height: none; overflow-y: visible; padding-right: 0; }
+  .codepane { height: 190px; font-size: 10.5px; }
+
+  .modal { padding: 26px 20px; }
+  .patron-row { flex-wrap: wrap; }
+  .patron-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+
+  .exhibit .nav-arrow { font-size: 40px; padding: 22px 10px; }
+  .exhibit .caption { left: 18px; bottom: 22px; font-size: 17px; max-width: 62%; }
+  .exhibit .caption small { font-size: 9px; letter-spacing: 0.22em; }
+  .exhibit .counter { right: 18px; bottom: 26px; font-size: 10px; }
+  .exhibit .exit { top: 18px; right: 16px; font-size: 10px; }
+
+  footer.colophon { flex-direction: column; gap: 8px; margin-top: 56px; }
+}
+
+/* Touch ergonomics: the exhibit is a fixed surface — no scroll, no
+   double-tap zoom; swipes belong to the art. */
+.exhibit { touch-action: none; -webkit-user-select: none; user-select: none; }

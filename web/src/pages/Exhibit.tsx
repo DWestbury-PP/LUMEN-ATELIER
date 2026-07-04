@@ -79,6 +79,32 @@ export default function Exhibit() {
     return () => window.removeEventListener("keydown", onKey);
   }, [step, navigate]);
 
+  // Touch: swipe left/right to walk the collection (the fidget part).
+  const touchStart = useRef<{ x: number; y: number; t: number } | null>(null);
+  const swiped = useRef(false);
+  function onTouchStart(e: React.TouchEvent) {
+    const t = e.touches[0];
+    touchStart.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+    swiped.current = false;
+  }
+  function onTouchEnd(e: React.TouchEvent) {
+    const start = touchStart.current;
+    touchStart.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.4 && Date.now() - start.t < 700) {
+      swiped.current = true;
+      step(dx < 0 ? 1 : -1); // swipe left → next, swipe right → previous
+    }
+  }
+  function onSurfaceClick() {
+    // A completed swipe shouldn't ALSO advance via the synthetic click.
+    if (swiped.current) { swiped.current = false; return; }
+    step(1);
+  }
+
   if (pieces.length === 0) {
     return (
       <div className="exhibit">
@@ -92,7 +118,13 @@ export default function Exhibit() {
   const previous = outgoing !== null ? pieces[outgoing] : null;
 
   return (
-    <div className="exhibit" onClick={() => step(1)} title="click to advance · arrow keys to browse">
+    <div
+      className="exhibit"
+      onClick={onSurfaceClick}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      title="tap or click to advance · swipe or arrow keys to browse"
+    >
       {previous?.glsl && (
         <div className="layer out" key={`out-${outgoing}-${idx}`}>
           <ShaderCanvas glsl={previous.glsl} maxDpr={1.5} fpsCap={60} />
