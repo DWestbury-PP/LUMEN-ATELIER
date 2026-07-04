@@ -100,7 +100,7 @@ cloud container. The studio owns its schema (idempotent migration at boot) and r
 pieces orphaned by restarts, so redeploys never strand work.
 
 **Production** runs on [Railway](https://railway.com) as three services: `app`
-(public, built from `Dockerfile.railway` — the studio serving the compiled gallery),
+(public, built from `Dockerfile` — the studio serving the compiled gallery),
 `renderer` (private networking only), and managed Postgres.
 
 **Local development** uses the same code as four compose containers (nginx-served
