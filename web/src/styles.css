@@ -301,6 +301,26 @@ button { font-family: inherit; }
 .exhibit .exit { position: absolute; top: 26px; right: 30px; z-index: 10; color: rgba(236,231,220,0.5); font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; }
 .exhibit .exit:hover { color: var(--gold); }
 
+.exhibit .nav-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 10;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--font-display); font-size: 64px; line-height: 1;
+  color: rgba(236, 231, 220, 0.28);
+  padding: 30px 22px;
+  transition: color 0.25s ease;
+  text-shadow: 0 2px 18px rgba(0,0,0,0.8);
+}
+.exhibit .nav-arrow:hover { color: var(--gold); }
+.exhibit .nav-arrow.prev { left: 6px; }
+.exhibit .nav-arrow.next { right: 6px; }
+
+.exhibit .counter {
+  position: absolute; right: 34px; bottom: 38px; z-index: 10;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em;
+  color: rgba(236, 231, 220, 0.4);
+  text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+}
+
 /* ── Modal ── */
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(4,4,6,0.78); backdrop-filter: blur(6px); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }

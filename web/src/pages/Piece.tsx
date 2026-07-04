@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import ShaderCanvas from "../gl/ShaderCanvas";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/AuthContext";
@@ -73,14 +73,25 @@ export default function PiecePage() {
         <div className="frame">
           {viewGlsl && <ShaderCanvas glsl={viewGlsl} maxDpr={1.5} fpsCap={60} />}
         </div>
-        {viewingDraft !== null && (
-          <div className="stage-caption">
-            <span>Viewing draft {viewingDraft + 1} — an earlier state of this piece</span>
-            <button className="linklike" onClick={() => { setViewGlsl(piece.glsl); setViewingDraft(null); }}>
-              return to final
-            </button>
-          </div>
-        )}
+        <div className="stage-caption">
+          {viewingDraft !== null ? (
+            <>
+              <span>Viewing draft {viewingDraft + 1} — an earlier state of this piece</span>
+              <button className="linklike" onClick={() => { setViewGlsl(piece.glsl); setViewingDraft(null); }}>
+                return to final
+              </button>
+            </>
+          ) : (
+            <>
+              <span />
+              {piece.glsl && (
+                <Link className="linklike" to={`/exhibit?start=${piece.id}`}>
+                  ⛶ view in the exhibit
+                </Link>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       <div className="piece-info">
