@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import ShaderCanvas from "../gl/ShaderCanvas";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/AuthContext";
@@ -7,6 +7,7 @@ import type { PieceDetail } from "../lib/types";
 
 export default function PiecePage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [piece, setPiece] = useState<PieceDetail | null>(null);
   const [viewGlsl, setViewGlsl] = useState<string | null>(null);
@@ -45,6 +46,39 @@ export default function PiecePage() {
     } else {
       const b = await res.json().catch(() => ({}));
       setCuratorMsg(b.error || "That didn't work.");
+    }
+  }
+
+  async function forkPiece() {
+    if (!piece) return;
+    setCuratorBusy(true);
+    setCuratorMsg(null);
+    const res = await fetch(`/api/admin/pieces/${piece.id}/fork`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    setCuratorBusy(false);
+    if (res.ok) {
+      const fork = await res.json();
+      navigate(`/piece/${fork.id}`);
+      setNote("");
+      setCuratorMsg(null);
+    } else {
+      const b = await res.json().catch(() => ({}));
+      setCuratorMsg(b.error || "That didn't work.");
+    }
+  }
+
+  async function deletePiece() {
+    if (!piece) return;
+    const label = piece.title ?? `piece #${piece.id}`;
+    if (!window.confirm(`Delete “${label}” permanently? Its drafts, critiques, and history all go with it. This cannot be undone.`)) return;
+    const res = await fetch(`/api/admin/pieces/${piece.id}`, { method: "DELETE" });
+    if (res.ok) navigate("/");
+    else {
+      const b = await res.json().catch(() => ({}));
+      setCuratorMsg(b.error || "Could not delete.");
     }
   }
 
@@ -124,9 +158,18 @@ export default function PiecePage() {
                 placeholder="Optional direction, e.g. 'the palette drifts too warm — hold the original blues'"
                 maxLength={1000}
               />
-              <div className="row" style={{ justifyContent: "flex-start", marginTop: 12 }}>
-                <button className="btn solid" onClick={reiterate} disabled={curatorBusy}>
-                  {curatorBusy ? "Sending…" : "Send back to the studio"}
+              <div className="row" style={{ justifyContent: "flex-start", marginTop: 12, flexWrap: "wrap", gap: 10 }}>
+                <button className="btn solid" onClick={reiterate} disabled={curatorBusy}
+                  title="Re-queue THIS piece for more drafts under your direction">
+                  {curatorBusy ? "Working…" : "Send back to the studio"}
+                </button>
+                <button className="btn" onClick={forkPiece} disabled={curatorBusy}
+                  title="Create a NEW piece that starts from this one's final draft — this piece stays untouched">
+                  Fork &amp; redraft
+                </button>
+                <button className="btn danger" onClick={deletePiece} disabled={curatorBusy}
+                  title="Permanently delete this piece and its history">
+                  Delete
                 </button>
               </div>
               {curatorMsg && <p className="fine-warn" style={{ marginTop: 10 }}>{curatorMsg}</p>}
@@ -152,6 +195,20 @@ export default function PiecePage() {
               <div><dt>Reference</dt><dd>{brief.reference}</dd></div>
               <div><dt>Motion</dt><dd>{brief.motion}</dd></div>
               <div><dt>Mood</dt><dd>{brief.mood}</dd></div>
+              {piece.inspiration && piece.inspiration.length > 0 && (
+                <div>
+                  <dt>Patron's inspiration</dt>
+                  <dd>
+                    <div className="inspo-row">
+                      {piece.inspiration.map((img, i) => (
+                        <a key={i} href={img} target="_blank" rel="noreferrer" className="inspo-thumb view">
+                          <img src={img} alt={`inspiration ${i + 1}`} />
+                        </a>
+                      ))}
+                    </div>
+                  </dd>
+                </div>
+              )}
               {piece.ledger && (
                 <div>
                   <dt>Studio ledger</dt>

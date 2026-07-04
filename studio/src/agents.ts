@@ -141,7 +141,12 @@ export interface RecentWork {
   mood: string | null;
 }
 
-export async function muse(theme: string | null, research: Research | null, recentWork: RecentWork[] = []): Promise<Brief> {
+export async function muse(
+  theme: string | null,
+  research: Research | null,
+  recentWork: RecentWork[] = [],
+  inspiration: string[] | null = null
+): Promise<Brief> {
   const parts: string[] = [];
   if (recentWork.length > 0) {
     parts.push(
@@ -160,12 +165,29 @@ export async function muse(theme: string | null, research: Research | null, rece
   }
   parts.push("Write the concept brief.");
 
+  const content: Anthropic.ContentBlockParam[] = [];
+  if (inspiration && inspiration.length > 0) {
+    parts.push(
+      "The patron attached the inspirational image(s) above. Study them — palette, forms, rhythm, mood — and translate their ESSENCE into the brief. Do not describe or copy them literally; distill what makes them work into direction a shader artist can realize."
+    );
+    for (const uri of inspiration) {
+      const m = uri.match(/^data:(image\/(?:png|jpeg|webp));base64,(.*)$/s);
+      if (m) {
+        content.push({
+          type: "image",
+          source: { type: "base64", media_type: m[1] as "image/png" | "image/jpeg" | "image/webp", data: m[2] },
+        });
+      }
+    }
+  }
+  content.push({ type: "text", text: parts.join("\n\n") });
+
   const msg = await client.messages.create({
     model: config.models.muse,
     max_tokens: 2000,
     system: MUSE_SYSTEM,
     output_config: schemaFormat(MUSE_SCHEMA),
-    messages: [{ role: "user", content: parts.join("\n\n") }],
+    messages: [{ role: "user", content }],
   });
   record(config.models.muse, msg.usage);
   return parseJson<Brief>(textOf(msg), "Muse");

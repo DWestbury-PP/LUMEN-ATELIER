@@ -67,6 +67,7 @@ export async function ensureSchema(): Promise<void> {
     alter table pieces add column if not exists commissioned_by int references users(id);
     alter table pieces add column if not exists ledger jsonb;
     alter table pieces add column if not exists curator_note text;
+    alter table pieces add column if not exists inspiration jsonb;
     create index if not exists idx_pieces_status on pieces(status);
     create index if not exists idx_iterations_piece on iterations(piece_id);
     create index if not exists idx_events_piece on events(piece_id);
@@ -109,10 +110,10 @@ export const q = {
     return r.rows[0] ?? null;
   },
 
-  async createPiece(theme: string | null, patron: string | null, userId: number | null = null): Promise<PieceRow> {
+  async createPiece(theme: string | null, patron: string | null, userId: number | null = null, inspiration: string[] | null = null): Promise<PieceRow> {
     const r = await pool.query(
-      "insert into pieces (theme, patron, status, commissioned_by) values ($1, $2, 'queued', $3) returning *",
-      [theme, patron, userId]
+      "insert into pieces (theme, patron, status, commissioned_by, inspiration) values ($1, $2, 'queued', $3, $4) returning *",
+      [theme, patron, userId, inspiration ? JSON.stringify(inspiration) : null]
     );
     return r.rows[0];
   },
@@ -126,6 +127,49 @@ export const q = {
       [limit]
     );
     return r.rows;
+  },
+
+  // Hard delete: the piece, its drafts, and its event trail.
+  async deletePiece(id: number): Promise<boolean> {
+    await pool.query("delete from events where piece_id = $1", [id]);
+    const r = await pool.query("delete from pieces where id = $1", [id]);
+    return (r.rowCount ?? 0) > 0;
+  },
+
+  // Fork: a NEW piece inheriting the source's brief, patron, inspiration,
+  // and final draft (as its starting iteration) — original untouched.
+  async forkPiece(srcId: number, note: string | null): Promise<PieceRow | null> {
+    const s = await pool.query("select * from pieces where id = $1", [srcId]);
+    const src = s.rows[0];
+    if (!src || !src.brief || !src.glsl) return null;
+    const lastIt = await pool.query(
+      `select glsl, critique from iterations where piece_id = $1 and critique is not null order by idx desc limit 1`,
+      [srcId]
+    );
+    const r = await pool.query(
+      `insert into pieces (theme, patron, brief, status, curator_note, inspiration, commissioned_by)
+       values ($1, $2, $3, 'queued', $4, $5, $6) returning *`,
+      [
+        src.theme ?? (src.title ? 'A redrafting of “' + src.title + '”' : null),
+        src.patron,
+        JSON.stringify(src.brief),
+        note,
+        src.inspiration ? JSON.stringify(src.inspiration) : null,
+        src.commissioned_by,
+      ]
+    );
+    const fork = r.rows[0];
+    await pool.query(
+      `insert into iterations (piece_id, idx, glsl, artisan_notes, compile_ok, compile_log, frames, critique)
+       values ($1, 0, $2, $3, true, null, null, $4)`,
+      [
+        fork.id,
+        src.glsl,
+        'Inherited from “' + (src.title ?? 'Untitled') + '” (piece #' + srcId + ') as the starting point for this redraft.',
+        lastIt.rows[0]?.critique ? JSON.stringify(lastIt.rows[0].critique) : null,
+      ]
+    );
+    return fork;
   },
 
   // ── Curator's prerogative ──
@@ -200,10 +244,10 @@ export const q = {
 
   // ── Commission proposals (curator approval required) ──
 
-  async createProposal(theme: string, patron: string | null, userId: number): Promise<PieceRow> {
+  async createProposal(theme: string, patron: string | null, userId: number, inspiration: string[] | null = null): Promise<PieceRow> {
     const r = await pool.query(
-      "insert into pieces (theme, patron, status, commissioned_by) values ($1, $2, 'proposed', $3) returning *",
-      [theme, patron, userId]
+      "insert into pieces (theme, patron, status, commissioned_by, inspiration) values ($1, $2, 'proposed', $3, $4) returning *",
+      [theme, patron, userId, inspiration ? JSON.stringify(inspiration) : null]
     );
     return r.rows[0];
   },

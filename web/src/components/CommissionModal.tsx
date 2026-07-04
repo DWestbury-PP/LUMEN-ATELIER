@@ -1,14 +1,40 @@
-import { FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useState } from "react";
 import { useAuth } from "../lib/AuthContext";
 import GoogleButton from "./GoogleButton";
+
+// Downscale + JPEG-compress an inspirational image in the browser so uploads
+// stay small (max edge 1024px, quality 0.8 — plenty for the Muse's eye).
+async function compressImage(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  return canvas.toDataURL("image/jpeg", 0.8);
+}
 
 export default function CommissionModal({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
   const [theme, setTheme] = useState("");
   const [patron, setPatron] = useState("");
+  const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<"queued" | "proposed" | null>(null);
+
+  async function pickImages(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []).slice(0, 3 - images.length);
+    e.target.value = "";
+    try {
+      const compressed = await Promise.all(files.map(compressImage));
+      setImages((prev) => [...prev, ...compressed].slice(0, 3));
+      setError(null);
+    } catch {
+      setError("Couldn't read one of those images — try a JPEG or PNG.");
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -17,7 +43,7 @@ export default function CommissionModal({ onClose }: { onClose: () => void }) {
     const res = await fetch("/api/commissions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ theme, patron }),
+      body: JSON.stringify({ theme, patron, images }),
     });
     setBusy(false);
     if (res.ok) {
@@ -77,6 +103,25 @@ export default function CommissionModal({ onClose }: { onClose: () => void }) {
               maxLength={300}
               required
             />
+            <label>Inspirational images (optional, up to 3)</label>
+            <div className="inspo-row">
+              {images.map((img, i) => (
+                <div className="inspo-thumb" key={i}>
+                  <img src={img} alt={`inspiration ${i + 1}`} />
+                  <button type="button" aria-label="remove image" onClick={() => setImages(images.filter((_, j) => j !== i))}>×</button>
+                </div>
+              ))}
+              {images.length < 3 && (
+                <label className="inspo-add">
+                  +
+                  <input type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={pickImages} />
+                </label>
+              )}
+            </div>
+            <p className="fine-warn" style={{ marginTop: 6 }}>
+              The Muse studies these for palette, form, and mood — the essence, never a copy.
+            </p>
+
             <label htmlFor="patron">Credited as (optional)</label>
             <input
               id="patron"

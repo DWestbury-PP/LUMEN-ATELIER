@@ -13,7 +13,9 @@ import {
 export function buildServer() {
   const app = express();
   app.set("trust proxy", 1);
-  app.use(express.json({ limit: "64kb" }));
+  // Large enough for commission proposals carrying compressed inspiration
+  // images (≤3 × ~800KB base64); everything else stays small.
+  app.use(express.json({ limit: "6mb" }));
   app.use(cookieParser());
 
   app.get("/api/health", (_req, res) => {
@@ -113,6 +115,31 @@ export function buildServer() {
     res.json(piece);
   });
 
+  // Fork a piece into a NEW redraft (original untouched), with direction.
+  app.post("/api/admin/pieces/:id/fork", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    const note = String(req.body?.note ?? "").trim().slice(0, 1000) || null;
+    const fork = await q.forkPiece(Number(req.params.id), note);
+    if (!fork) return res.status(409).json({ error: "piece must have a brief and a final shader to fork" });
+    emitStudio("curator.forked", fork.id, { sourceId: Number(req.params.id), note });
+    res.status(201).json(fork);
+  });
+
+  // Delete a piece outright — the piece, its drafts, its event trail.
+  app.delete("/api/admin/pieces/:id", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    const id = Number(req.params.id);
+    if (state.currentPieceId === id) {
+      return res.status(409).json({ error: "the studio is composing this piece right now — let it finish first" });
+    }
+    const gone = await q.deletePiece(id);
+    if (!gone) return res.status(404).json({ error: "piece not found" });
+    emitStudio("curator.deleted", null, { pieceId: id });
+    res.json({ ok: true });
+  });
+
   // ── Pieces ────────────────────────────────────────────────────────
 
   app.get("/api/pieces", async (req, res) => {
@@ -148,19 +175,31 @@ export function buildServer() {
     const theme = String(req.body?.theme ?? "").trim().slice(0, 300);
     const patron = String(req.body?.patron ?? "").trim().slice(0, 80) || user.name || user.email;
     if (theme.length < 3) return res.status(400).json({ error: "Give the studio a theme (at least a few words)." });
+
+    // Optional inspirational images: ≤3, jpeg/png/webp data URIs, ≤1.1MB each.
+    const rawImages = Array.isArray(req.body?.images) ? req.body.images : [];
+    const images = rawImages
+      .filter((s: unknown): s is string =>
+        typeof s === "string" &&
+        s.length <= 1_100_000 &&
+        /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s))
+      .slice(0, 3);
+    if (rawImages.length > 0 && images.length === 0) {
+      return res.status(400).json({ error: "Inspiration images must be JPEG/PNG/WebP and reasonably sized." });
+    }
     lastCommission.set(user.id, now);
 
     if (user.role === "admin") {
       if ((await q.queueLength()) >= 12) {
         return res.status(429).json({ error: "The studio queue is full — try again shortly." });
       }
-      const piece = await q.createPiece(theme, patron, user.id);
-      emitStudio("commission.received", piece.id, { theme, patron });
+      const piece = await q.createPiece(theme, patron, user.id, images.length ? images : null);
+      emitStudio("commission.received", piece.id, { theme, patron, images: images.length });
       return res.status(201).json({ ...piece, approved: true });
     }
 
-    const piece = await q.createProposal(theme, patron, user.id);
-    emitStudio("commission.proposed", piece.id, { theme, patron });
+    const piece = await q.createProposal(theme, patron, user.id, images.length ? images : null);
+    emitStudio("commission.proposed", piece.id, { theme, patron, images: images.length });
     res.status(201).json({ ...piece, approved: false });
   });
 

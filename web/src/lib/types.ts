@@ -26,6 +26,7 @@ export interface Ledger {
 export interface Piece {
   id: number;
   ledger?: Ledger | null;
+  inspiration?: string[] | null;
   title: string | null;
   statement: string | null;
   theme: string | null;

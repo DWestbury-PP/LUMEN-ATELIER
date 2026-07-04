@@ -9,6 +9,7 @@ interface Proposal {
   theme: string | null;
   patron: string | null;
   created_at: string;
+  inspiration?: string[] | null;
   submitter_email: string | null;
   submitter_name: string | null;
 }
@@ -79,6 +80,15 @@ export default function Patrons() {
         <div className="patron-row" key={p.id}>
           <div className="patron-id" style={{ flex: 1 }}>
             <strong>“{p.theme}”</strong>
+            {p.inspiration && p.inspiration.length > 0 && (
+              <div className="inspo-row" style={{ marginTop: 6 }}>
+                {p.inspiration.map((img, i) => (
+                  <a key={i} href={img} target="_blank" rel="noreferrer" className="inspo-thumb view">
+                    <img src={img} alt={`inspiration ${i + 1}`} />
+                  </a>
+                ))}
+              </div>
+            )}
             <span>
               {p.submitter_name ?? p.submitter_email ?? "unknown"} ({p.submitter_email})
               {p.patron && p.patron !== p.submitter_name && <> · credited as “{p.patron}”</>}

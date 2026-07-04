@@ -40,6 +40,10 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
       return { ...base, who: "studio", label: "The Curator", text: `Sends “${p.title ?? "a piece"}” back to the studio${p.note ? `: “${p.note}”` : "."}` };
     case "curator.direction":
       return { ...base, who: "studio", label: "The Curator", text: `Direction for this round: “${p.note}”` };
+    case "curator.forked":
+      return { ...base, who: "studio", label: "The Curator", text: `Forks piece #${p.sourceId} into a new redraft${p.note ? `: “${p.note}”` : "."}` };
+    case "curator.deleted":
+      return { ...base, who: "studio", label: "The Curator", text: `Removed piece #${p.pieceId} from the gallery permanently.` };
     case "curator.hung_draft":
       return { ...base, who: "studio", label: "The Curator", text: `Overrides the Critic — draft ${Number(p.idx) + 1} of “${p.title ?? "a piece"}” now hangs in the gallery.` };
     case "studio.ledger":

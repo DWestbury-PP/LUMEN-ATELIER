@@ -56,7 +56,8 @@ async function composePiece(piece: PieceRow): Promise<void> {
     const research = await maybeResearch(piece.theme);
     if (research) emitStudio("muse.research", id, { subject: research.subject });
     const recentWork = await q.recentApprovedSummaries(12).catch(() => []);
-    brief = await muse(piece.theme, research, recentWork);
+    const inspiration = (piece as PieceRow & { inspiration?: string[] | null }).inspiration ?? null;
+    brief = await muse(piece.theme, research, recentWork, inspiration);
     await q.setBrief(id, brief);
     emitStudio("muse.brief", id, { brief });
   }

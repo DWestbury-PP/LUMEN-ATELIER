@@ -10,11 +10,11 @@ export const api = {
   pieces: (status = "approved") => get<Piece[]>(`/api/pieces?status=${status}`),
   piece: (id: number | string) => get<PieceDetail>(`/api/pieces/${id}`),
   status: () => get<StudioStatus>("/api/status"),
-  commission: async (theme: string, patron: string): Promise<{ ok: boolean; error?: string }> => {
+  commission: async (theme: string, patron: string, images: string[] = []): Promise<{ ok: boolean; error?: string }> => {
     const res = await fetch("/api/commissions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ theme, patron }),
+      body: JSON.stringify({ theme, patron, images }),
     });
     if (res.ok) return { ok: true };
     const body = (await res.json().catch(() => ({}))) as { error?: string };
