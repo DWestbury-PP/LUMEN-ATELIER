@@ -77,12 +77,20 @@ async function composePiece(piece: PieceRow): Promise<void> {
     setPhase("drafting");
     emitStudio("artisan.started", id, { iteration: idxBase + iter });
 
-    // Draft, with compile-repair inner loop
-    let draft = await artisan(
+    // Draft, with compile-repair inner loop. A malformed response (no valid
+    // shader block) gets one fresh retry before it can fail the piece.
+    const draftOnce = () => artisan(
       { brief, priorAttempts: attempts, curatorNote },
       (text) => emitStudio("artisan.delta", id, { text }),
       (text) => emitStudio("artisan.thinking", id, { text })
     );
+    let draft: Awaited<ReturnType<typeof artisan>>;
+    try {
+      draft = await draftOnce();
+    } catch (err) {
+      emitStudio("artisan.malformed", id, { message: err instanceof Error ? err.message : String(err) });
+      draft = await draftOnce();
+    }
     emitStudio("artisan.draft", id, { iteration: idxBase + iter, notes: draft.notes, glsl: draft.glsl });
 
     setPhase("rendering");

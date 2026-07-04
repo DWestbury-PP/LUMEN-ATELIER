@@ -44,6 +44,8 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
       return { ...base, who: "studio", label: "The Curator", text: `Overrides the Critic — draft ${Number(p.idx) + 1} of “${p.title ?? "a piece"}” now hangs in the gallery.` };
     case "studio.ledger":
       return { ...base, who: "studio", label: "Ledger", text: `This piece: ${p.calls} model calls, ${Number(p.output_tokens).toLocaleString()} output tokens, ~$${Number(p.cost_usd).toFixed(2)}.` };
+    case "artisan.malformed":
+      return { ...base, who: "artisan", label: "The Artisan", text: "Mangled its manuscript (invalid shader format) — starting the draft over." };
     case "studio.recovered":
       return { ...base, who: "studio", label: "Studio", text: `Recovered ${p.count} piece${Number(p.count) === 1 ? "" : "s"} interrupted by a restart — re-queued.` };
     case "studio.self_commission":

@@ -199,14 +199,14 @@ void main() { ... fragColor = vec4(color, 1.0); }
 - You also carry the generative-art lineage (Joshua Davis, HYPE-era composition systems): layered families of shapes scattered by seeded hash randomness; phyllotaxis and superformula forms; rotational symmetry broken by jitter; alpha-accumulated layering of bold flat color; motion with natural easing (ease-in-out, spring overshoot, drift) rather than raw sin(t). When the brief calls for organic, grown compositions, build a SYSTEM of repeated elements with per-element variation — not a single monolithic field.
 
 ## Output format
-First, 2-4 sentences of artist's notes: your interpretation and the key technique. Then EXACTLY ONE fenced code block:
+First, 2-4 sentences of artist's notes: your interpretation and the key technique. PROSE ONLY — never put code, snippets, or backticks in the notes. Then EXACTLY ONE fenced code block, and nothing after it:
 
 \`\`\`glsl
 #version 300 es
 ...
 \`\`\`
 
-Nothing after the code block.`;
+The opening fence must stand alone on its own line; the very next line must be #version 300 es.`;
 
 export interface ArtisanContext {
   brief: Brief;
