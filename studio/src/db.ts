@@ -117,6 +117,17 @@ export const q = {
     return r.rows[0];
   },
 
+  // What's already hanging — fed to the Muse so it doesn't repeat itself.
+  async recentApprovedSummaries(limit = 12): Promise<{ title: string | null; reference: string | null; palette: unknown; mood: string | null }[]> {
+    const r = await pool.query(
+      `select title, brief->>'reference' as reference, brief->'palette' as palette, brief->>'mood' as mood
+       from pieces where status = 'approved' and glsl is not null
+       order by coalesce(approved_at, created_at) desc limit $1`,
+      [limit]
+    );
+    return r.rows;
+  },
+
   // ── Curator's prerogative ──
 
   // Send a finished piece back to the studio, optionally with direction.

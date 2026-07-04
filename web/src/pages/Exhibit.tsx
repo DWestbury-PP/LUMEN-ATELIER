@@ -27,11 +27,22 @@ export default function Exhibit() {
 
   useEffect(() => {
     api.pieces().then((all) => {
+      // Shuffle the rotation so pieces from the same creative era (which can
+      // share a family resemblance) don't hang side by side; a deep-linked
+      // start piece leads the walk.
       const withArt = all.filter((p) => p.glsl);
+      for (let i = withArt.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [withArt[i], withArt[j]] = [withArt[j], withArt[i]];
+      }
       const startId = Number(params.get("start"));
-      const startIdx = Math.max(0, withArt.findIndex((p) => p.id === startId));
-      idxRef.current = startIdx;
-      setIdx(startIdx);
+      const startAt = withArt.findIndex((p) => p.id === startId);
+      if (startAt > 0) {
+        const [chosen] = withArt.splice(startAt, 1);
+        withArt.unshift(chosen);
+      }
+      idxRef.current = 0;
+      setIdx(0);
       setPieces(withArt);
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps

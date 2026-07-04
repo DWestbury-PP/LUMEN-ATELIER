@@ -52,7 +52,8 @@ async function composePiece(piece: PieceRow): Promise<void> {
     setPhase("brief");
     const research = await maybeResearch(piece.theme);
     if (research) emitStudio("muse.research", id, { subject: research.subject });
-    brief = await muse(piece.theme, research);
+    const recentWork = await q.recentApprovedSummaries(12).catch(() => []);
+    brief = await muse(piece.theme, research, recentWork);
     await q.setBrief(id, brief);
     emitStudio("muse.brief", id, { brief });
   }
@@ -133,7 +134,8 @@ async function composePiece(piece: PieceRow): Promise<void> {
   // 4 — Finalize or decline, and file the ledger
   if (approvedGlsl) {
     setPhase("finalizing");
-    const { title, statement } = await finalize({ brief, glsl: approvedGlsl, critiqueHistory });
+    const existingTitles = (await q.recentApprovedSummaries(20).catch(() => [])).map((w) => w.title);
+    const { title, statement } = await finalize({ brief, glsl: approvedGlsl, critiqueHistory, existingTitles });
     await q.approvePiece(id, approvedGlsl, title, statement, iterationsUsed);
     emitStudio("piece.approved", id, { title, statement, iterations: iterationsUsed });
   } else {

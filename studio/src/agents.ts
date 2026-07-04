@@ -133,8 +133,22 @@ const MUSE_SCHEMA = {
   additionalProperties: false,
 };
 
-export async function muse(theme: string | null, research: Research | null): Promise<Brief> {
+export interface RecentWork {
+  title: string | null;
+  reference: string | null;
+  palette: unknown;
+  mood: string | null;
+}
+
+export async function muse(theme: string | null, research: Research | null, recentWork: RecentWork[] = []): Promise<Brief> {
   const parts: string[] = [];
+  if (recentWork.length > 0) {
+    parts.push(
+      `## The studio's recent work — DO NOT repeat it\n` +
+      recentWork.map((w) => `- "${w.title}" — after ${w.reference}; palette ${JSON.stringify(w.palette)}; mood: ${w.mood}`).join("\n") +
+      `\nYour brief must break from this body of work: a different structural motif (if recent pieces lean on grids/lattices, go organic, volumetric, figurative-abstract, or particulate), a palette family not used above, and a different emotional register. Repetition is the studio's greatest enemy.`
+    );
+  }
   if (theme) {
     parts.push(`A visitor has commissioned a piece. Their theme: "${theme}". Honor the spirit of the request while applying your own artistic judgment.`);
   } else {
@@ -375,6 +389,7 @@ export async function finalize(args: {
   brief: Brief;
   glsl: string;
   critiqueHistory: Critique[];
+  existingTitles?: (string | null)[];
 }): Promise<{ title: string; statement: string }> {
   const msg = await client.messages.create({
     model: config.models.artisan,
@@ -389,7 +404,9 @@ export async function finalize(args: {
       content:
         `Brief:\n${JSON.stringify(args.brief, null, 2)}\n\n` +
         `Revisions it went through: ${args.critiqueHistory.length}\n` +
-        `Final critique: ${args.critiqueHistory[args.critiqueHistory.length - 1]?.critique ?? "(approved on first view)"}`,
+        `Final critique: ${args.critiqueHistory[args.critiqueHistory.length - 1]?.critique ?? "(approved on first view)"}\n\n` +
+        `Titles already hanging in the gallery (your title must not echo their words or cadence):\n` +
+        (args.existingTitles ?? []).filter(Boolean).map((t) => `- ${t}`).join("\n"),
     }],
   });
   record(config.models.artisan, msg.usage);
