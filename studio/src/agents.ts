@@ -206,7 +206,7 @@ First, 2-4 sentences of artist's notes: your interpretation and the key techniqu
 ...
 \`\`\`
 
-The opening fence must stand alone on its own line; the very next line must be #version 300 es.`;
+The opening fence must stand alone on its own line; the very next line must be #version 300 es. Write the shader as ONE continuous, complete block — never split it into sections with commentary between, never show a draft and then a rewrite. One block, final code only.`;
 
 export interface ArtisanContext {
   brief: Brief;
@@ -273,17 +273,51 @@ export async function artisan(
   }
   const full = textOf(msg);
 
-  const match = full.match(/```(?:glsl|c|cpp)?\s*\n([\s\S]*?)```/);
-  let glsl = match ? match[1].trim() : "";
-  if (!glsl) {
-    // Fallback: the model emitted bare source
-    const idx = full.indexOf("#version 300 es");
-    if (idx >= 0) glsl = full.slice(idx).trim();
+  // Models under pressure write shaders in creative layouts: multiple fenced
+  // sections with commentary between ("// ---- build" style), a discarded
+  // draft followed by a full rewrite, fences on the same line as code, or
+  // bare unfenced source. Reassemble rather than guess:
+  //  - collect all fenced segments
+  //  - start from the LAST segment containing the version directive (a later
+  //    #version supersedes earlier attempts)
+  //  - append subsequent fenced segments that DON'T restate #version (those
+  //    are continuation sections of the same shader)
+  const FENCE = String.fromCharCode(96, 96, 96);
+  const rawSegments = full.split(FENCE);
+  const fenced: string[] = [];
+  for (let i = 1; i < rawSegments.length; i += 2) {
+    fenced.push(rawSegments[i].replace(/^[a-z]{0,8}[ \t]*\r?\n/i, ""));
   }
-  if (!glsl.startsWith("#version 300 es")) {
+  let glsl = "";
+  let lastWithVersion = -1;
+  for (let i = 0; i < fenced.length; i++) {
+    if (fenced[i].includes("#version 300 es")) lastWithVersion = i;
+  }
+  if (lastWithVersion >= 0) {
+    const parts = [fenced[lastWithVersion]];
+    for (let i = lastWithVersion + 1; i < fenced.length; i++) {
+      if (fenced[i].includes("#version 300 es")) break;
+      parts.push(fenced[i]);
+    }
+    const joined = parts.join("\n");
+    glsl = joined.slice(joined.indexOf("#version 300 es")).trim();
+  } else {
+    // Unfenced fallback: anchor on the directive, cut at the final brace.
+    const vIdx = full.lastIndexOf("#version 300 es");
+    if (vIdx >= 0) {
+      let code = full.slice(vIdx);
+      const lastBrace = code.lastIndexOf("}");
+      if (lastBrace > 0) code = code.slice(0, lastBrace + 1);
+      glsl = code.trim();
+    }
+  }
+  if (!glsl.startsWith("#version 300 es") || !glsl.includes("void main")) {
     throw new Error("Artisan did not produce a valid GLSL ES 3.00 shader");
   }
-  const notes = (match ? full.slice(0, match.index) : full).trim().slice(0, 2000);
+  let notes = rawSegments[0].includes("#version 300 es")
+    ? rawSegments[0].slice(0, rawSegments[0].indexOf("#version 300 es"))
+    : rawSegments[0];
+  notes = notes.trim().slice(0, 2000);
   return { glsl, notes };
 }
 
