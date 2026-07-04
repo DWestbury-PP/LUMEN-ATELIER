@@ -28,6 +28,7 @@ export function buildServer() {
       queueLength: await q.queueLength(),
       models: config.models,
       maxIterations: config.maxIterations,
+      phaseSince: state.phaseSince,
       autoCreateIntervalMin: config.autoCreateIntervalMin,
       spend24h: await q.spend24h(),
     });
@@ -201,6 +202,7 @@ export function buildServer() {
     send("hello", {
       hasKey: hasKey(),
       phase: state.phase,
+      phaseSince: state.phaseSince,
       currentPieceId: state.currentPieceId,
       models: config.models,
     });

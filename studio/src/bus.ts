@@ -15,7 +15,7 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(200);
 
 // Ephemeral event types are streamed live but not persisted (e.g. per-token deltas).
-const EPHEMERAL = new Set(["artisan.delta", "studio.heartbeat"]);
+const EPHEMERAL = new Set(["artisan.delta", "artisan.thinking", "studio.heartbeat"]);
 
 export function emitStudio(type: string, pieceId: number | null, payload: Record<string, unknown> = {}): void {
   const ev: StudioEvent = { type, pieceId, payload, at: new Date().toISOString() };

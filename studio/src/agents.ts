@@ -215,7 +215,8 @@ export interface ArtisanContext {
 
 export async function artisan(
   ctx: ArtisanContext,
-  onDelta?: (text: string) => void
+  onDelta?: (text: string) => void,
+  onThinking?: (text: string) => void
 ): Promise<ArtisanDraft> {
   const parts: string[] = [`## The brief\n${JSON.stringify(ctx.brief, null, 2)}`];
 
@@ -249,10 +250,18 @@ export async function artisan(
   const stream = client.messages.stream({
     model: config.models.artisan,
     max_tokens: 20000,
+    thinking: { type: "adaptive", display: "summarized" },
     system: ARTISAN_SYSTEM,
     messages: [{ role: "user", content: parts.join("\n\n") }],
   });
   if (onDelta) stream.on("text", onDelta);
+  if (onThinking) {
+    stream.on("streamEvent", (ev) => {
+      if (ev.type === "content_block_delta" && ev.delta.type === "thinking_delta" && ev.delta.thinking) {
+        onThinking(ev.delta.thinking);
+      }
+    });
+  }
   const msg = await stream.finalMessage();
   record(config.models.artisan, msg.usage);
   const full = textOf(msg);

@@ -19,6 +19,7 @@ export interface StudioState {
   hasKey: boolean;
   currentPieceId: number | null;
   phase: string; // idle | brief | drafting | rendering | critique | finalizing
+  phaseSince: string;
 }
 
 export const state: StudioState = {
@@ -26,11 +27,13 @@ export const state: StudioState = {
   hasKey: hasKey(),
   currentPieceId: null,
   phase: "idle",
+  phaseSince: new Date().toISOString(),
 };
 
 function setPhase(phase: string, pieceId: number | null = state.currentPieceId) {
   state.phase = phase;
-  emitStudio("studio.phase", pieceId, { phase });
+  state.phaseSince = new Date().toISOString();
+  emitStudio("studio.phase", pieceId, { phase, since: state.phaseSince });
 }
 
 async function composePiece(piece: PieceRow): Promise<void> {
@@ -77,7 +80,8 @@ async function composePiece(piece: PieceRow): Promise<void> {
     // Draft, with compile-repair inner loop
     let draft = await artisan(
       { brief, priorAttempts: attempts, curatorNote },
-      (text) => emitStudio("artisan.delta", id, { text })
+      (text) => emitStudio("artisan.delta", id, { text }),
+      (text) => emitStudio("artisan.thinking", id, { text })
     );
     emitStudio("artisan.draft", id, { iteration: idxBase + iter, notes: draft.notes, glsl: draft.glsl });
 
@@ -89,7 +93,8 @@ async function composePiece(piece: PieceRow): Promise<void> {
       emitStudio("artisan.compile_error", id, { iteration: idxBase + iter, attempt: repairs, log: (render.log || "").slice(0, 1500) });
       draft = await artisan(
         { brief, priorAttempts: attempts, curatorNote, compileError: { log: render.log || "unknown", glsl: draft.glsl } },
-        (text) => emitStudio("artisan.delta", id, { text })
+        (text) => emitStudio("artisan.delta", id, { text }),
+        (text) => emitStudio("artisan.thinking", id, { text })
       );
       emitStudio("artisan.draft", id, { iteration: idxBase + iter, notes: draft.notes, glsl: draft.glsl, repaired: true });
       render = await renderShader(draft.glsl);

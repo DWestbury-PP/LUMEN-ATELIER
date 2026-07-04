@@ -87,13 +87,37 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
   }
 }
 
+const PHASE_COPY: Record<string, string> = {
+  idle: "The studio is quiet",
+  brief: "The Muse is dreaming up a brief",
+  drafting: "The Artisan is at the easel",
+  rendering: "The studio is capturing frames",
+  critique: "The Critic is deliberating",
+  finalizing: "Titling and framing the approved piece",
+};
+
+function fmtElapsed(since: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
 export default function StudioFloor() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [currentGlsl, setCurrentGlsl] = useState<string | null>(null);
   const [delta, setDelta] = useState("");
+  const [thinking, setThinking] = useState("");
   const [connected, setConnected] = useState(false);
   const [drafting, setDrafting] = useState(false);
+  const [phase, setPhase] = useState<{ name: string; since: number } | null>(null);
+  const [asleep, setAsleep] = useState(false);
+  const [, setTick] = useState(0);
   const feedRef = useRef<HTMLDivElement | null>(null);
+
+  // Tick the elapsed clock while the ensemble works.
+  useEffect(() => {
+    const iv = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   useEffect(() => {
     const es = new EventSource("/api/stream");
@@ -109,14 +133,34 @@ export default function StudioFloor() {
         setDrafting(true);
         return;
       }
-      if (ev.type === "artisan.started") { setDelta(""); setDrafting(true); }
+      if (ev.type === "artisan.thinking") {
+        setThinking((d) => (d + String(ev.payload?.text ?? "")).slice(-2400));
+        setDrafting(true);
+        return;
+      }
+      if (ev.type === "studio.phase") {
+        const since = ev.payload?.since ? Date.parse(String(ev.payload.since)) : Date.now();
+        setPhase({ name: String(ev.payload?.phase ?? "idle"), since });
+        return; // phase changes drive the activity strip, not the feed
+      }
+      if (ev.type === "artisan.started") { setDelta(""); setThinking(""); setDrafting(true); }
       if (ev.type === "artisan.draft" && ev.payload?.glsl) { setCurrentGlsl(String(ev.payload.glsl)); setDrafting(false); }
       if (ev.type === "iteration.rendered" && ev.payload?.glsl) setCurrentGlsl(String(ev.payload.glsl));
       if (ev.type === "piece.approved" || ev.type === "piece.declined") setDrafting(false);
       push(toFeedItem(ev));
     };
 
-    es.addEventListener("hello", () => setConnected(true));
+    es.addEventListener("hello", (e) => {
+      setConnected(true);
+      try {
+        const d = JSON.parse((e as MessageEvent).data);
+        setAsleep(!d.hasKey);
+        setPhase({
+          name: String(d.phase ?? "idle"),
+          since: d.phaseSince ? Date.parse(d.phaseSince) : Date.now(),
+        });
+      } catch { /* strip stays generic */ }
+    });
     es.addEventListener("history", (e) => {
       try {
         const rows = JSON.parse((e as MessageEvent).data) as RawEvent[];
@@ -162,10 +206,24 @@ export default function StudioFloor() {
             <span>ON THE EASEL — current working draft, rendered live</span>
             <span>{connected ? "connected" : "reconnecting…"}</span>
           </div>
-          {(drafting || delta) && (
+
+          <div className={`activity ${phase && phase.name !== "idle" ? "working" : ""}`}>
+            <span className="dot" />
+            {asleep
+              ? "The ensemble is asleep — no API key configured."
+              : phase === null
+                ? "Reaching the studio…"
+                : phase.name === "idle"
+                  ? "The studio is quiet. The next self-directed piece begins on the studio's own clock."
+                  : `${PHASE_COPY[phase.name] ?? phase.name} — ${fmtElapsed(phase.since)}. The quiet stretches are the models thinking.`}
+          </div>
+
+          {(drafting || delta || thinking) && (
             <div className="codepane">
-              {delta || "the Artisan lifts the pen…"}
-              {drafting && <span className="cursor" />}
+              {thinking && <span className="think">{thinking}{!delta && <span className="cursor" />}{"\n\n"}</span>}
+              {delta}
+              {drafting && delta && <span className="cursor" />}
+              {!delta && !thinking && "the Artisan lifts the pen…"}
             </div>
           )}
         </div>

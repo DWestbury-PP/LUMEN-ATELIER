@@ -269,6 +269,31 @@ button { font-family: inherit; }
   word-break: break-word;
 }
 .codepane .cursor { display: inline-block; width: 7px; height: 13px; background: var(--gold); animation: pulse 1s infinite; vertical-align: text-bottom; }
+.codepane .think { color: #7c7668; font-style: italic; }
+
+.activity {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  background: var(--bg-raise);
+  border: 1px solid var(--gold-faint);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+.activity .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ink-faint);
+  flex-shrink: 0;
+}
+.activity.working .dot {
+  background: var(--gold);
+  box-shadow: 0 0 10px rgba(201, 163, 92, 0.8);
+  animation: pulse 1.6s infinite;
+}
+.activity.working { border-color: var(--gold-soft); color: var(--ink); }
 
 .feed { display: flex; flex-direction: column; gap: 12px; max-height: 78vh; overflow-y: auto; padding-right: 6px; }
 .feed-item { border-left: 2px solid var(--gold-faint); padding: 10px 16px; background: var(--bg-raise); }
