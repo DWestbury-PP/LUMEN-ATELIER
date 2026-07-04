@@ -24,6 +24,13 @@ const MOVEMENTS = [
   "Dan Flavin fluorescent light art",
   "microscopy photography of crystals",
   "Olafur Eliasson atmosphere installations",
+  "Joshua Davis Praystation generative art compositions",
+  "HYPE framework generative design Joshua Davis Branden Hall",
+  "Tyler Hobbs Fidenza generative flow fields",
+  "Casey Reas Processing software art",
+  "Vera Molnár algorithmic plotter drawings",
+  "Zach Lieberman generative motion sketches",
+  "phyllotaxis and superformula in generative art",
 ];
 
 export interface Research {

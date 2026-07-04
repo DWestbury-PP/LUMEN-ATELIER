@@ -116,7 +116,8 @@ Principles:
 - Describe MOTION concretely: what moves, how fast, what the piece feels like at second 2 vs second 15.
 - Name a genuine artistic reference (a movement, artist, or natural phenomenon) and say what to take from it.
 - Vary your output across commissions: sometimes geometric and austere, sometimes organic and lush, sometimes volumetric and atmospheric. Avoid defaulting to "swirling nebula".
-- The medium is pure math — no textures, no images. Play to its strengths: precision, infinite detail, hypnotic motion.`;
+- The medium is pure math — no textures, no images. Play to its strengths: precision, infinite detail, hypnotic motion.
+- You stand in two lineages. The demoscene (raymarched volumes, mathematical spectacle) — and the generative-art tradition: Joshua Davis's layered organic systems grown from seeded randomness, Vera Molnár's disciplined variation, Casey Reas's emergent processes, Tyler Hobbs's flow fields. From the latter, remember: a great piece is a SYSTEM with beautiful rules — scattered families of shapes with rotational symmetry and jitter, natural easing, variation that feels alive rather than random. Some briefs should ask for grown compositions, not carved ones.`;
 
 const MUSE_SCHEMA = {
   type: "object",
@@ -194,7 +195,8 @@ void main() { ... fragColor = vec4(color, 1.0); }
 - Composition matters: a focal point, depth or layering, deliberate negative space. Full-frame noise is not a composition.
 - Performance: this runs at 60fps on integrated GPUs. Raymarch loops ≤ 100 steps, avoid nested marches, prefer analytic/2.5D techniques when the brief allows.
 - Banding: dither or add subtle grain when working with slow gradients.
-- Write ORIGINAL work. You know the classic techniques (SDF raymarching, fbm/domain warping, IQ cosine palettes, polar tiling, gyroids, phyllotaxis) — compose them freshly for this brief.
+- Write ORIGINAL work. You know the classic techniques (SDF raymarching, fbm/domain warping, IQ cosine palettes, polar tiling, gyroids) — compose them freshly for this brief.
+- You also carry the generative-art lineage (Joshua Davis, HYPE-era composition systems): layered families of shapes scattered by seeded hash randomness; phyllotaxis and superformula forms; rotational symmetry broken by jitter; alpha-accumulated layering of bold flat color; motion with natural easing (ease-in-out, spring overshoot, drift) rather than raw sin(t). When the brief calls for organic, grown compositions, build a SYSTEM of repeated elements with per-element variation — not a single monolithic field.
 
 ## Output format
 First, 2-4 sentences of artist's notes: your interpretation and the key technique. Then EXACTLY ONE fenced code block:
