@@ -348,7 +348,7 @@ button { font-family: inherit; }
 
 /* ── Modal ── */
 
-.modal-backdrop { position: fixed; inset: 0; background: rgba(4,4,6,0.78); backdrop-filter: blur(6px); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(4,4,6,0.78); backdrop-filter: blur(6px); z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .modal { background: var(--bg-panel); border: 1px solid var(--gold-soft); padding: 36px 38px; max-width: 480px; width: 100%; }
 .modal h2 { font-family: var(--font-display); font-style: italic; font-weight: 360; font-size: 26px; margin-bottom: 10px; }
 .modal p { color: var(--ink-dim); font-size: 13.5px; margin-bottom: 20px; }
@@ -451,8 +451,25 @@ footer.colophon a { color: var(--ink-dim); border-bottom: 1px solid var(--gold-f
     flex-wrap: wrap;
     row-gap: 12px;
   }
-  .nav .btn { padding: 8px 14px; font-size: 10.5px; letter-spacing: 0.14em; margin-left: auto; }
-  .account img { width: 22px; height: 22px; }
+  .nav { align-items: center; }
+  .nav .btn {
+    order: 99;
+    flex: 1 1 100%;
+    margin-left: 0;
+    text-align: center;
+    padding: 12px 14px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+  }
+  .account { margin-left: auto; gap: 8px; }
+  .account img { width: 24px; height: 24px; }
+
+  .modal-backdrop {
+    align-items: flex-start;
+    padding: 16px 12px 48px;
+  }
+  .modal { padding: 24px 18px 28px; }
+  .modal textarea, .modal input { font-size: 16px; } /* prevents iOS focus-zoom */
 
   .hero { padding: 34px 0 22px; }
   .hero p { font-size: 14.5px; }
