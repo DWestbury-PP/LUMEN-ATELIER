@@ -40,6 +40,7 @@ services:
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       MUSE_MODEL: ${MUSE_MODEL:-claude-haiku-4-5}
       ARTISAN_MODEL: ${ARTISAN_MODEL:-claude-sonnet-5}
+      ARTISAN_EFFORT: ${ARTISAN_EFFORT:-medium}
       CRITIC_MODEL: ${CRITIC_MODEL:-claude-opus-4-8}
       AUTO_CREATE: ${AUTO_CREATE:-true}
       AUTO_CREATE_INTERVAL_MIN: ${AUTO_CREATE_INTERVAL_MIN:-120}

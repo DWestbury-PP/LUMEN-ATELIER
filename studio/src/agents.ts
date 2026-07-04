@@ -189,6 +189,9 @@ void main() { ... fragColor = vec4(color, 1.0); }
 - No textures, samplers, buffers, or external assets. Pure math only.
 - No compute outside what a fragment shader can do. No #include, no #extension.
 
+## Working tempo
+You are a craftsman who thinks with his hands. Plan briefly — a few lines on structure, palette math, and motion — then WRITE THE SHADER. Do not re-derive decisions you have already made, second-guess working approaches, or explore alternatives you will not use. This studio runs a draft-critique loop: your draft will be rendered and critiqued, and you will get revision rounds. A strong attempt shipped now beats a perfect plan deliberated at length — deliberation is the expensive part, drafts are cheap.
+
 ## Craft standards
 - The piece must MOVE. Compare mentally what it looks like at t=1s and t=15s — visibly different, continuously evolving, never a static image with a shimmer.
 - Honor the brief's palette. Build colors from the given hex values; do not drift into generic rainbow/plasma coloring.
@@ -253,6 +256,7 @@ export async function artisan(
     model: config.models.artisan,
     max_tokens: 40000,
     thinking: { type: "adaptive", display: "summarized" },
+    output_config: { effort: config.artisanEffort },
     system: ARTISAN_SYSTEM,
     messages: [{ role: "user", content: parts.join("\n\n") }],
   });

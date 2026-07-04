@@ -9,6 +9,9 @@ export const config = {
     artisan: process.env.ARTISAN_MODEL || "claude-sonnet-5",
     critic: process.env.CRITIC_MODEL || "claude-opus-4-8",
   },
+  // Thinking depth for the Artisan. "medium" is deliberate: drafts are cheap
+  // in this studio (the Critic catches problems), deliberation is not.
+  artisanEffort: (process.env.ARTISAN_EFFORT || "medium") as "low" | "medium" | "high",
   autoCreate: (process.env.AUTO_CREATE || "true").toLowerCase() === "true",
   autoCreateIntervalMin: Number(process.env.AUTO_CREATE_INTERVAL_MIN || 120),
   maxIterations: Math.max(1, Number(process.env.MAX_ITERATIONS || 4)),
