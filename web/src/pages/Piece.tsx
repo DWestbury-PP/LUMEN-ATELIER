@@ -71,7 +71,7 @@ export default function PiecePage() {
     <>
       <div className="piece-hero">
         <div className="frame">
-          {viewGlsl && <ShaderCanvas glsl={viewGlsl} maxDpr={2} fpsCap={60} />}
+          {viewGlsl && <ShaderCanvas glsl={viewGlsl} maxDpr={1.5} fpsCap={60} />}
         </div>
         {viewingDraft !== null && (
           <div className="stage-caption">
