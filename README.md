@@ -53,7 +53,8 @@ The models are configurable via environment; recast the ensemble however you lik
   scores and notes.
 - **The Studio Floor** — a live view of the piece being made right now: the Artisan's
   code streaming in, captured frames, verdicts as they land.
-- **Commissions** — visitors propose a theme; see *Governance* below.
+- **Commissions** — visitors propose a theme, optionally with up to three inspiration
+  images the Muse actually looks at; see *Governance* below.
 - **Exhibit mode** — fullscreen ambient display, pieces cross-fading. Point a spare
   monitor at `/exhibit`.
 
@@ -71,7 +72,11 @@ they pass through a curator:
    zero tokens until the curator explicitly approves it. Declined proposals never run.
 4. Per-user limits: one proposal per minute, at most three awaiting review.
 
-Admins are designated by `ADMIN_EMAILS` and are auto-granted the role on sign-in.
+The curator's brush is broader than approve/decline: any piece can be **sent back to
+the studio with notes**, **forked into a fresh redraft** with additional direction,
+or removed from the collection — and every piece page carries its **usage ledger**,
+the actual model spend that made it. Admins are designated by `ADMIN_EMAILS` and are
+auto-granted the role on sign-in.
 
 ## Architecture
 
@@ -101,7 +106,8 @@ pieces orphaned by restarts, so redeploys never strand work.
 
 **Production** runs on [Railway](https://railway.com) as three services: `app`
 (public, built from `Dockerfile` — the studio serving the compiled gallery),
-`renderer` (private networking only), and managed Postgres.
+`renderer` (private networking only), and managed Postgres. Both services
+auto-deploy from this repository on push to `main`.
 
 **Local development** uses the same code as four compose containers (nginx-served
 gallery, studio, renderer, Postgres):
@@ -125,7 +131,8 @@ hand-written **calibration pieces** so the pipeline is visible end-to-end.
 | `SESSION_SECRET` | HMAC key for session cookies (`openssl rand -hex 32`). |
 | `ADMIN_EMAILS` | Comma-separated curator emails (auto-admin on sign-in). |
 | `MUSE_MODEL` / `ARTISAN_MODEL` / `CRITIC_MODEL` | Recast the ensemble. |
-| `AUTO_CREATE` / `AUTO_CREATE_INTERVAL_MIN` | Self-commissioning cadence (default: every 45 min). |
+| `AUTO_CREATE` / `AUTO_CREATE_INTERVAL_MIN` | Self-commissioning cadence (default: every 2 hours, ~12 pieces/day). |
+| `ARTISAN_EFFORT` | Reasoning effort for the Artisan (default `medium` — keeps it painting, not pondering). |
 | `MAX_ITERATIONS` | Revision rounds before the Critic's final ruling (default 4). |
 
 ## The shader contract
