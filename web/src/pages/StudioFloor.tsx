@@ -32,6 +32,12 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
   switch (ev.type) {
     case "commission.received":
       return { ...base, who: "studio", label: "Commission", text: `“${p.theme}”${p.patron ? ` — from ${p.patron}` : ""}` };
+    case "commission.proposed":
+      return { ...base, who: "studio", label: "Proposal", text: `A visitor proposes: “${p.theme}” — awaiting the curator's review.` };
+    case "commission.declined":
+      return { ...base, who: "studio", label: "Curator", text: "A proposal was declined. No work was begun." };
+    case "studio.recovered":
+      return { ...base, who: "studio", label: "Studio", text: `Recovered ${p.count} piece${Number(p.count) === 1 ? "" : "s"} interrupted by a restart — re-queued.` };
     case "studio.self_commission":
       return { ...base, who: "studio", label: "Studio", text: "The ensemble sets itself a new piece — no commission, pure practice." };
     case "piece.started":

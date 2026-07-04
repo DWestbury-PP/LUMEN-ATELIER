@@ -115,6 +115,47 @@ export const q = {
     return r.rows[0];
   },
 
+  // Re-queue pieces orphaned in 'composing' by a mid-work restart.
+  async requeueOrphans(): Promise<number> {
+    const r = await pool.query("update pieces set status = 'queued' where status = 'composing'");
+    return r.rowCount ?? 0;
+  },
+
+  // ── Commission proposals (curator approval required) ──
+
+  async createProposal(theme: string, patron: string | null, userId: number): Promise<PieceRow> {
+    const r = await pool.query(
+      "insert into pieces (theme, patron, status, commissioned_by) values ($1, $2, 'proposed', $3) returning *",
+      [theme, patron, userId]
+    );
+    return r.rows[0];
+  },
+
+  async countOpenProposals(userId: number): Promise<number> {
+    const r = await pool.query(
+      "select count(*)::int as n from pieces where commissioned_by = $1 and status = 'proposed'",
+      [userId]
+    );
+    return r.rows[0].n;
+  },
+
+  async listProposals(): Promise<(PieceRow & { submitter_email: string | null; submitter_name: string | null })[]> {
+    const r = await pool.query(
+      `select p.*, u.email as submitter_email, u.name as submitter_name
+       from pieces p left join users u on u.id = p.commissioned_by
+       where p.status = 'proposed' order by p.created_at asc`
+    );
+    return r.rows;
+  },
+
+  async resolveProposal(pieceId: number, approve: boolean): Promise<PieceRow | null> {
+    const r = await pool.query(
+      "update pieces set status = $2 where id = $1 and status = 'proposed' returning *",
+      [pieceId, approve ? "queued" : "rejected"]
+    );
+    return r.rows[0] ?? null;
+  },
+
   // ── Users & roles ──
 
   async userBySub(sub: string): Promise<UserRow | null> {

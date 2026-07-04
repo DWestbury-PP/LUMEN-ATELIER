@@ -138,6 +138,15 @@ async function maybeAutoCreate(): Promise<PieceRow | null> {
 
 export async function studioLoop(): Promise<void> {
   state.running = true;
+  // Recover orphans: a restart mid-composition leaves pieces stuck in
+  // 'composing' with no worker. Re-queue them so the loop picks them up
+  // fresh. (Single-worker studio, so anything 'composing' at boot is dead.)
+  try {
+    const requeued = await q.requeueOrphans();
+    if (requeued > 0) {
+      emitStudio("studio.recovered", null, { count: requeued });
+    }
+  } catch { /* non-fatal */ }
   if (!hasKey()) {
     emitStudio("studio.no_key", null, {
       message: "No ANTHROPIC_API_KEY configured — the ensemble is asleep. Gallery serves existing pieces only.",

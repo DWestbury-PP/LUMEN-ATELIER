@@ -60,18 +60,7 @@ export function buildServer() {
     res.json({ user: user ? publicUser(user) : null });
   });
 
-  app.post("/api/me/request-commission", async (req, res) => {
-    const user = await userFromRequest(req);
-    if (!user) return res.status(401).json({ error: "Sign in first." });
-    if (user.role === "commissioner" || user.role === "admin") {
-      return res.json({ user: publicUser(user) });
-    }
-    const updated = (await q.requestCommission(user.id)) ?? user;
-    emitStudio("patron.requested", null, { email: updated.email, name: updated.name });
-    res.json({ user: publicUser(updated) });
-  });
-
-  // ── Admin: patron approval ────────────────────────────────────────
+  // ── Admin: user management ───────────────────────────────────────
 
   app.get("/api/admin/users", async (req, res) => {
     const user = await userFromRequest(req);
@@ -112,34 +101,61 @@ export function buildServer() {
     res.json(piece);
   });
 
-  // Commission a piece — requires the commissioning privilege.
+  // Submit a commission PROPOSAL. Every proposal is reviewed by the curator
+  // before the ensemble spends a single token on it. Admin proposals are
+  // auto-approved (the curator doesn't need to approve their own themes).
   const lastCommission = new Map<number, number>();
   app.post("/api/commissions", async (req, res) => {
     const user = await userFromRequest(req);
     if (!user) {
-      return res.status(401).json({ error: "Sign in with Google to commission a piece." });
-    }
-    if (user.role !== "commissioner" && user.role !== "admin") {
-      return res.status(403).json({
-        error: user.role === "requested"
-          ? "Your commissioning request is still awaiting the curator's approval."
-          : "Commissioning requires approval — request the privilege from your account menu.",
-      });
+      return res.status(401).json({ error: "Sign in with Google to propose a commission." });
     }
     const now = Date.now();
     if (now - (lastCommission.get(user.id) ?? 0) < 60_000) {
-      return res.status(429).json({ error: "One commission per minute, please — the studio works at its own pace." });
+      return res.status(429).json({ error: "One proposal per minute, please — the studio works at its own pace." });
+    }
+    if (user.role !== "admin" && (await q.countOpenProposals(user.id)) >= 3) {
+      return res.status(429).json({ error: "You already have three proposals awaiting the curator — let those settle first." });
     }
     const theme = String(req.body?.theme ?? "").trim().slice(0, 300);
     const patron = String(req.body?.patron ?? "").trim().slice(0, 80) || user.name || user.email;
     if (theme.length < 3) return res.status(400).json({ error: "Give the studio a theme (at least a few words)." });
-    if ((await q.queueLength()) >= 12) {
-      return res.status(429).json({ error: "The commission book is full for now — try again later." });
-    }
     lastCommission.set(user.id, now);
-    const piece = await q.createPiece(theme, patron, user.id);
-    emitStudio("commission.received", piece.id, { theme, patron });
-    res.status(201).json(piece);
+
+    if (user.role === "admin") {
+      if ((await q.queueLength()) >= 12) {
+        return res.status(429).json({ error: "The studio queue is full — try again shortly." });
+      }
+      const piece = await q.createPiece(theme, patron, user.id);
+      emitStudio("commission.received", piece.id, { theme, patron });
+      return res.status(201).json({ ...piece, approved: true });
+    }
+
+    const piece = await q.createProposal(theme, patron, user.id);
+    emitStudio("commission.proposed", piece.id, { theme, patron });
+    res.status(201).json({ ...piece, approved: false });
+  });
+
+  // Admin: review proposals case by case.
+  app.get("/api/admin/proposals", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    res.json(await q.listProposals());
+  });
+
+  app.post("/api/admin/proposals/:id", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    const approve = req.body?.action === "approve";
+    if (!approve && req.body?.action !== "decline") {
+      return res.status(400).json({ error: "action must be approve or decline" });
+    }
+    const piece = await q.resolveProposal(Number(req.params.id), approve);
+    if (!piece) return res.status(404).json({ error: "proposal not found (or already resolved)" });
+    emitStudio(approve ? "commission.received" : "commission.declined", piece.id, {
+      theme: piece.theme, patron: piece.patron,
+    });
+    res.json(piece);
   });
 
   // ── Live studio feed (SSE) ────────────────────────────────────────
