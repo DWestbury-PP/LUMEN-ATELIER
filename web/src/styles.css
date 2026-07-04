@@ -300,6 +300,24 @@ button { font-family: inherit; }
 .modal .error { color: var(--decline); font-size: 12.5px; margin-top: 12px; }
 .modal .ok { color: var(--approve); font-size: 13.5px; margin-top: 12px; }
 
+/* ── Account & patrons ── */
+
+.account { display: inline-flex; align-items: center; gap: 10px; }
+.account img { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--gold-soft); display: block; }
+
+.fine-warn { color: var(--ink-faint); font-size: 13px; font-style: italic; }
+
+.patron-row {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--bg-raise); border: 1px solid var(--gold-faint);
+  padding: 14px 18px; margin-bottom: 12px;
+}
+.patron-row img { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--gold-soft); }
+.patron-id { display: flex; flex-direction: column; gap: 2px; }
+.patron-id strong { font-weight: 500; }
+.patron-id span { font-size: 12px; color: var(--ink-faint); }
+.patron-actions { margin-left: auto; display: flex; gap: 10px; }
+
 /* ── Misc ── */
 
 .empty { padding: 80px 0; text-align: center; color: var(--ink-faint); font-style: italic; font-family: var(--font-display); font-size: 19px; }

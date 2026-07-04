@@ -1,5 +1,5 @@
 import { config, hasKey } from "./config.js";
-import { waitForDb } from "./db.js";
+import { ensureSchema, waitForDb } from "./db.js";
 import { seedIfEmpty } from "./seeds.js";
 import { buildServer } from "./server.js";
 import { studioLoop } from "./loop.js";
@@ -7,6 +7,7 @@ import { studioLoop } from "./loop.js";
 async function main() {
   console.log("[studio] waiting for database…");
   await waitForDb();
+  await ensureSchema();
 
   const seeded = await seedIfEmpty();
   if (seeded) console.log("[studio] gallery seeded with calibration pieces");

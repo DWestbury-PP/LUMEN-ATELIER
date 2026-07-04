@@ -14,6 +14,22 @@ export const config = {
   maxIterations: Math.max(1, Number(process.env.MAX_ITERATIONS || 4)),
   // Frames the Critic sees, and their timestamps (seconds into the piece).
   frame: { width: 512, height: 288, times: [0.8, 3.5, 8.2, 15.0] },
+
+  // ── Auth & deployment ──
+  // Google OAuth client ID for Sign in with Google (frontend + token audience).
+  googleClientId: process.env.GOOGLE_CLIENT_ID || "",
+  // HMAC secret for session cookies. Required in production.
+  sessionSecret: process.env.SESSION_SECRET || "",
+  // Emails that are automatically granted the admin role on sign-in.
+  adminEmails: (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+  // If set, the studio serves the built gallery from this directory
+  // (single-container deployments, e.g. Railway).
+  staticDir: process.env.STATIC_DIR || "",
+  // Secure cookies (set to "true" behind HTTPS).
+  secureCookies: (process.env.SECURE_COOKIES || "false").toLowerCase() === "true",
 };
 
 export const hasKey = () => Boolean(config.anthropicApiKey);

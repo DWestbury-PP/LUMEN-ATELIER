@@ -1,4 +1,19 @@
 -- Lumen Atelier schema
+-- NOTE: the studio also applies this schema idempotently at boot
+-- (studio/src/db.ts ensureSchema) so managed Postgres providers that never
+-- run this file still get the right tables. Keep the two in sync.
+
+create table if not exists users (
+  id            serial primary key,
+  google_sub    text unique not null,
+  email         text not null,
+  name          text,
+  picture       text,
+  role          text not null default 'visitor',  -- visitor | requested | commissioner | admin
+  requested_at  timestamptz,
+  approved_at   timestamptz,
+  created_at    timestamptz not null default now()
+);
 
 create table if not exists pieces (
   id            serial primary key,
@@ -12,7 +27,8 @@ create table if not exists pieces (
   seed          boolean not null default false,  -- calibration piece, not ensemble-made
   iterations    int not null default 0,
   created_at    timestamptz not null default now(),
-  approved_at   timestamptz
+  approved_at   timestamptz,
+  commissioned_by int references users(id)
 );
 
 create table if not exists iterations (

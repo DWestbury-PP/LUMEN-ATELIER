@@ -15,6 +15,75 @@ export async function waitForDb(maxAttempts = 30): Promise<void> {
   throw new Error("database never became reachable");
 }
 
+// The studio owns its schema: managed Postgres (e.g. Railway) never runs the
+// repo's init.sql, so boot applies the same idempotent DDL everywhere.
+export async function ensureSchema(): Promise<void> {
+  await pool.query(`
+    create table if not exists pieces (
+      id            serial primary key,
+      title         text,
+      statement     text,
+      theme         text,
+      patron        text,
+      brief         jsonb,
+      glsl          text,
+      status        text not null default 'queued',
+      seed          boolean not null default false,
+      iterations    int not null default 0,
+      created_at    timestamptz not null default now(),
+      approved_at   timestamptz
+    );
+    create table if not exists iterations (
+      id            serial primary key,
+      piece_id      int not null references pieces(id) on delete cascade,
+      idx           int not null,
+      glsl          text not null,
+      artisan_notes text,
+      compile_ok    boolean,
+      compile_log   text,
+      frames        jsonb,
+      critique      jsonb,
+      created_at    timestamptz not null default now(),
+      unique (piece_id, idx)
+    );
+    create table if not exists events (
+      id            bigserial primary key,
+      piece_id      int,
+      type          text not null,
+      payload       jsonb,
+      created_at    timestamptz not null default now()
+    );
+    create table if not exists users (
+      id            serial primary key,
+      google_sub    text unique not null,
+      email         text not null,
+      name          text,
+      picture       text,
+      role          text not null default 'visitor',
+      requested_at  timestamptz,
+      approved_at   timestamptz,
+      created_at    timestamptz not null default now()
+    );
+    alter table pieces add column if not exists commissioned_by int references users(id);
+    create index if not exists idx_pieces_status on pieces(status);
+    create index if not exists idx_iterations_piece on iterations(piece_id);
+    create index if not exists idx_events_piece on events(piece_id);
+    create index if not exists idx_events_created on events(created_at);
+  `);
+}
+
+export interface UserRow {
+  id: number;
+  google_sub: string;
+  email: string;
+  name: string | null;
+  picture: string | null;
+  role: "visitor" | "requested" | "commissioner" | "admin";
+  requested_at: string | null;
+  approved_at: string | null;
+  created_at: string;
+}
+
 export interface PieceRow {
   id: number;
   title: string | null;
@@ -38,12 +107,60 @@ export const q = {
     return r.rows[0] ?? null;
   },
 
-  async createPiece(theme: string | null, patron: string | null): Promise<PieceRow> {
+  async createPiece(theme: string | null, patron: string | null, userId: number | null = null): Promise<PieceRow> {
     const r = await pool.query(
-      "insert into pieces (theme, patron, status) values ($1, $2, 'queued') returning *",
-      [theme, patron]
+      "insert into pieces (theme, patron, status, commissioned_by) values ($1, $2, 'queued', $3) returning *",
+      [theme, patron, userId]
     );
     return r.rows[0];
+  },
+
+  // ── Users & roles ──
+
+  async userBySub(sub: string): Promise<UserRow | null> {
+    const r = await pool.query("select * from users where google_sub = $1", [sub]);
+    return r.rows[0] ?? null;
+  },
+
+  async upsertUser(p: { sub: string; email: string; name: string | null; picture: string | null }, admin: boolean): Promise<UserRow> {
+    const r = await pool.query(
+      `insert into users (google_sub, email, name, picture, role)
+       values ($1, $2, $3, $4, $5)
+       on conflict (google_sub) do update set
+         email = excluded.email, name = excluded.name, picture = excluded.picture,
+         role = case when $6 then 'admin' else users.role end
+       returning *`,
+      [p.sub, p.email, p.name, p.picture, admin ? "admin" : "visitor", admin]
+    );
+    return r.rows[0];
+  },
+
+  async requestCommission(userId: number): Promise<UserRow | null> {
+    const r = await pool.query(
+      `update users set role = 'requested', requested_at = now()
+       where id = $1 and role = 'visitor' returning *`,
+      [userId]
+    );
+    return r.rows[0] ?? null;
+  },
+
+  async setUserRole(userId: number, role: "visitor" | "commissioner"): Promise<UserRow | null> {
+    const r = await pool.query(
+      `update users set role = $2,
+         approved_at = case when $2 = 'commissioner' then now() else approved_at end
+       where id = $1 and role <> 'admin' returning *`,
+      [userId, role]
+    );
+    return r.rows[0] ?? null;
+  },
+
+  async listUsers(): Promise<UserRow[]> {
+    const r = await pool.query(
+      `select * from users order by
+         case role when 'requested' then 0 when 'commissioner' then 1 when 'admin' then 2 else 3 end,
+         requested_at desc nulls last, created_at desc limit 500`
+    );
+    return r.rows;
   },
 
   async setStatus(id: number, status: string): Promise<void> {
