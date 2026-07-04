@@ -141,7 +141,7 @@ export default function StudioFloor() {
         <div className="stage">
           <div className="frame">
             {currentGlsl
-              ? <ShaderCanvas glsl={currentGlsl} maxDpr={1.5} />
+              ? <ShaderCanvas glsl={currentGlsl} maxDpr={1.25} fpsCap={30} />
               : <div className="gl-error">no work on the easel yet</div>}
           </div>
           <div className="stage-caption">

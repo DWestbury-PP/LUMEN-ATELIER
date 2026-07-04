@@ -50,10 +50,10 @@ export default function Exhibit() {
   return (
     <div className="exhibit" onClick={advance} title="click to advance">
       <div className="layer" style={{ opacity: frontIsA ? 1 : 0 }}>
-        {layerA?.glsl && <ShaderCanvas glsl={layerA.glsl} maxDpr={2} paused={!frontIsA} />}
+        {layerA?.glsl && <ShaderCanvas glsl={layerA.glsl} maxDpr={2} fpsCap={60} paused={!frontIsA} />}
       </div>
       <div className="layer" style={{ opacity: frontIsA ? 0 : 1 }}>
-        {layerB?.glsl && <ShaderCanvas glsl={layerB.glsl} maxDpr={2} paused={frontIsA} />}
+        {layerB?.glsl && <ShaderCanvas glsl={layerB.glsl} maxDpr={2} fpsCap={60} paused={frontIsA} />}
       </div>
       <div className="caption">
         {current.title ?? "Untitled"}
