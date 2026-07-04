@@ -65,6 +65,7 @@ export async function ensureSchema(): Promise<void> {
       created_at    timestamptz not null default now()
     );
     alter table pieces add column if not exists commissioned_by int references users(id);
+    alter table pieces add column if not exists ledger jsonb;
     create index if not exists idx_pieces_status on pieces(status);
     create index if not exists idx_iterations_piece on iterations(piece_id);
     create index if not exists idx_events_piece on events(piece_id);
@@ -113,6 +114,19 @@ export const q = {
       [theme, patron, userId]
     );
     return r.rows[0];
+  },
+
+  async setPieceLedger(id: number, ledger: unknown): Promise<void> {
+    await pool.query("update pieces set ledger = $2 where id = $1", [id, JSON.stringify(ledger)]);
+  },
+
+  // Rolling 24h spend across all pieces (auto + commissioned).
+  async spend24h(): Promise<{ cost_usd: number; pieces: number }> {
+    const r = await pool.query(
+      `select coalesce(sum((ledger->>'cost_usd')::numeric), 0)::float as cost, count(*)::int as n
+       from pieces where ledger is not null and created_at > now() - interval '24 hours'`
+    );
+    return { cost_usd: Math.round(r.rows[0].cost * 100) / 100, pieces: r.rows[0].n };
   },
 
   // Re-queue pieces orphaned in 'composing' by a mid-work restart.

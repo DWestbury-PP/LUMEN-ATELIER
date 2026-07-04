@@ -35,6 +35,54 @@ export interface ArtisanDraft {
   notes: string;
 }
 
+// ── Usage ledger ─────────────────────────────────────────────────────
+// Every API call is tallied so each piece carries its true cost. Prices
+// are sticker $/MTok (input, output) — update if Anthropic pricing moves.
+
+const PRICES: Record<string, { in: number; out: number }> = {
+  "claude-haiku-4-5": { in: 1, out: 5 },
+  "claude-sonnet-5": { in: 3, out: 15 },
+  "claude-sonnet-4-6": { in: 3, out: 15 },
+  "claude-opus-4-8": { in: 5, out: 25 },
+  "claude-opus-4-7": { in: 5, out: 25 },
+  "claude-fable-5": { in: 10, out: 50 },
+};
+
+interface UsageEntry { model: string; input: number; output: number; }
+let tally: UsageEntry[] = [];
+
+export function resetUsageTally(): void { tally = []; }
+
+export function summarizeUsage(): {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  by_model: Record<string, { calls: number; input: number; output: number; cost_usd: number }>;
+} {
+  const by_model: Record<string, { calls: number; input: number; output: number; cost_usd: number }> = {};
+  let input = 0, output = 0, cost = 0;
+  for (const e of tally) {
+    const p = PRICES[e.model] ?? { in: 5, out: 25 }; // unknown model: price conservatively
+    const c = (e.input * p.in + e.output * p.out) / 1_000_000;
+    const m = (by_model[e.model] ??= { calls: 0, input: 0, output: 0, cost_usd: 0 });
+    m.calls++; m.input += e.input; m.output += e.output; m.cost_usd += c;
+    input += e.input; output += e.output; cost += c;
+  }
+  for (const m of Object.values(by_model)) m.cost_usd = Math.round(m.cost_usd * 10000) / 10000;
+  return {
+    calls: tally.length,
+    input_tokens: input,
+    output_tokens: output,
+    cost_usd: Math.round(cost * 10000) / 10000,
+    by_model,
+  };
+}
+
+function record(model: string, usage: { input_tokens: number; output_tokens: number } | undefined): void {
+  if (usage) tally.push({ model, input: usage.input_tokens, output: usage.output_tokens });
+}
+
 // ── Shared helpers ───────────────────────────────────────────────────
 
 function textOf(msg: Anthropic.Message): string {
@@ -104,6 +152,7 @@ export async function muse(theme: string | null, research: Research | null): Pro
     output_config: schemaFormat(MUSE_SCHEMA),
     messages: [{ role: "user", content: parts.join("\n\n") }],
   });
+  record(config.models.muse, msg.usage);
   return parseJson<Brief>(textOf(msg), "Muse");
 }
 
@@ -184,6 +233,7 @@ export async function artisan(
   });
   if (onDelta) stream.on("text", onDelta);
   const msg = await stream.finalMessage();
+  record(config.models.artisan, msg.usage);
   const full = textOf(msg);
 
   const match = full.match(/```(?:glsl|c|cpp)?\s*\n([\s\S]*?)```/);
@@ -250,9 +300,13 @@ function frameBlocks(frames: string[]): Anthropic.ContentBlockParam[] {
   const blocks: Anthropic.ContentBlockParam[] = [];
   const labels = config.frame.times;
   frames.forEach((dataUri, i) => {
-    const b64 = dataUri.replace(/^data:image\/png;base64,/, "");
+    const m = dataUri.match(/^data:(image\/(?:png|jpeg|webp));base64,(.*)$/s);
+    if (!m) return;
     blocks.push({ type: "text", text: `Frame ${i + 1} — t = ${labels[i] ?? "?"}s:` });
-    blocks.push({ type: "image", source: { type: "base64", media_type: "image/png", data: b64 } });
+    blocks.push({
+      type: "image",
+      source: { type: "base64", media_type: m[1] as "image/png" | "image/jpeg" | "image/webp", data: m[2] },
+    });
   });
   return blocks;
 }
@@ -288,6 +342,7 @@ export async function critic(args: {
     output_config: schemaFormat(CRITIC_SCHEMA),
     messages: [{ role: "user", content }],
   });
+  record(config.models.critic, msg.usage);
   const critique = parseJson<Critique>(textOf(msg), "Critic");
   if (isFinal && critique.verdict === "revise") critique.verdict = "decline";
   return critique;
@@ -326,5 +381,6 @@ export async function finalize(args: {
         `Final critique: ${args.critiqueHistory[args.critiqueHistory.length - 1]?.critique ?? "(approved on first view)"}`,
     }],
   });
+  record(config.models.artisan, msg.usage);
   return parseJson<{ title: string; statement: string }>(textOf(msg), "Finalize");
 }

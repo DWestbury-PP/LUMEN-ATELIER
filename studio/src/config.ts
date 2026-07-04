@@ -10,7 +10,7 @@ export const config = {
     critic: process.env.CRITIC_MODEL || "claude-opus-4-8",
   },
   autoCreate: (process.env.AUTO_CREATE || "true").toLowerCase() === "true",
-  autoCreateIntervalMin: Number(process.env.AUTO_CREATE_INTERVAL_MIN || 45),
+  autoCreateIntervalMin: Number(process.env.AUTO_CREATE_INTERVAL_MIN || 120),
   maxIterations: Math.max(1, Number(process.env.MAX_ITERATIONS || 4)),
   // Frames the Critic sees, and their timestamps (seconds into the piece).
   frame: { width: 512, height: 288, times: [0.8, 3.5, 8.2, 15.0] },

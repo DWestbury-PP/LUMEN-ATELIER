@@ -68,7 +68,9 @@ window.renderShader = function (glsl, width, height, times) {
       if (uTime) gl.uniform1f(uTime, t);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.finish();
-      frames.push(canvas.toDataURL("image/png"));
+      // JPEG at q0.85: ~10-15x smaller than PNG for shader art, and the
+      // Critic judges composition/color/motion, not compression artifacts.
+      frames.push(canvas.toDataURL("image/jpeg", 0.85));
     }
   } catch (e) {
     return { ok: false, stage: "runtime", log: String(e) };

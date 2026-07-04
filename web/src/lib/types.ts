@@ -15,8 +15,17 @@ export interface Critique {
   suggestions: string[];
 }
 
+export interface Ledger {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  by_model: Record<string, { calls: number; input: number; output: number; cost_usd: number }>;
+}
+
 export interface Piece {
   id: number;
+  ledger?: Ledger | null;
   title: string | null;
   statement: string | null;
   theme: string | null;

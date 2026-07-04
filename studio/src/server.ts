@@ -28,6 +28,8 @@ export function buildServer() {
       queueLength: await q.queueLength(),
       models: config.models,
       maxIterations: config.maxIterations,
+      autoCreateIntervalMin: config.autoCreateIntervalMin,
+      spend24h: await q.spend24h(),
     });
   });
 

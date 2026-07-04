@@ -21,7 +21,11 @@ export function emitStudio(type: string, pieceId: number | null, payload: Record
   const ev: StudioEvent = { type, pieceId, payload, at: new Date().toISOString() };
   emitter.emit("event", ev);
   if (!EPHEMERAL.has(type)) {
-    q.insertEvent(pieceId, type, payload).catch(() => {});
+    // Frames ride the live stream but are NOT persisted here — they already
+    // live on the iteration row, and duplicating multi-hundred-KB images into
+    // the event log doubles storage and bloats every history replay.
+    const stored = "frames" in payload ? { ...payload, frames: undefined } : payload;
+    q.insertEvent(pieceId, type, stored).catch(() => {});
   }
 }
 

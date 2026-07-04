@@ -78,6 +78,16 @@ export default function PiecePage() {
               <div><dt>Reference</dt><dd>{brief.reference}</dd></div>
               <div><dt>Motion</dt><dd>{brief.motion}</dd></div>
               <div><dt>Mood</dt><dd>{brief.mood}</dd></div>
+              {piece.ledger && (
+                <div>
+                  <dt>Studio ledger</dt>
+                  <dd>
+                    {(piece.ledger.input_tokens + piece.ledger.output_tokens).toLocaleString()} tokens
+                    {" · "}{piece.ledger.calls} model calls
+                    {" · "}~${piece.ledger.cost_usd.toFixed(2)}
+                  </dd>
+                </div>
+              )}
             </dl>
           </aside>
         )}

@@ -18,6 +18,18 @@ const VS =
 const SLOW_FRAME_MS = 350;
 const SLOW_FRAME_LIMIT = 4;
 
+// Audition pass: every shader must render one frame at postage-stamp size
+// within this budget before it's allowed on screen at full resolution. A
+// shader that needs >150ms for ~5k pixels would need seconds for a full
+// frame — enough to stall the GPU and blank the entire browser.
+const PROBE_W = 96;
+const PROBE_H = 54;
+const PROBE_LIMIT_MS = 150;
+
+// A shader that kills its context this many times is retired from live
+// rendering (auto-respawning a lethal shader re-kills the GPU in a loop).
+const MAX_CONTEXT_LOSSES = 2;
+
 interface Props {
   glsl: string;
   /** Device-pixel-ratio cap; keep low for grid thumbnails, higher for hero views. */
@@ -39,6 +51,7 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
   const timeOffset = useMemo(() => Math.random() * 90, []);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const lossCount = useRef(0);
 
   // Watch visibility of the wrapper (not the canvas — the canvas may not exist yet).
   useEffect(() => {
@@ -54,6 +67,7 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
 
   // New shader source: clear any previous error/heavy verdict.
   useEffect(() => {
+    lossCount.current = 0;
     setStatus("ok");
     setGeneration((g) => g + 1);
   }, [glsl]);
@@ -70,8 +84,15 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
 
     const onLost = (e: Event) => {
       e.preventDefault();
-      // GPU reset or context eviction — retire this canvas and respawn shortly.
-      if (!disposed) setTimeout(() => setGeneration((g) => g + 1), 1200);
+      if (disposed) return;
+      lossCount.current += 1;
+      if (lossCount.current >= MAX_CONTEXT_LOSSES) {
+        // This shader keeps taking the GPU down — retire it. A human can
+        // still opt in via the overlay, but we never auto-retry a killer.
+        setStatus("heavy");
+      } else {
+        setTimeout(() => setGeneration((g) => g + 1), 1500);
+      }
     };
     canvas.addEventListener("webglcontextlost", onLost);
 
@@ -105,6 +126,26 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
     gl.useProgram(prog);
     const uRes = gl.getUniformLocation(prog, "iResolution");
     const uTime = gl.getUniformLocation(prog, "iTime");
+
+    // ── Audition pass ── one tiny synchronous frame, timed. Shaders that
+    // blow the budget here would stall the GPU at full resolution.
+    canvas.width = PROBE_W;
+    canvas.height = PROBE_H;
+    gl.viewport(0, 0, PROBE_W, PROBE_H);
+    if (uRes) gl.uniform2f(uRes, PROBE_W, PROBE_H);
+    if (uTime) gl.uniform1f(uTime, 0.8 + timeOffset);
+    const probeStart = performance.now();
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.finish();
+    if (performance.now() - probeStart > PROBE_LIMIT_MS) {
+      canvas.removeEventListener("webglcontextlost", onLost);
+      gl.deleteProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+      setStatus("heavy");
+      return;
+    }
 
     let raf = 0;
     let lastDraw = 0;
@@ -177,10 +218,10 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
       {status === "heavy" && (
         <button
           className="gl-heavy"
-          onClick={() => { setStatus("ok"); setGeneration((g) => g + 1); }}
-          title="This shader was pausing your GPU; click to try again"
+          onClick={() => { lossCount.current = 0; setStatus("ok"); setGeneration((g) => g + 1); }}
+          title="This shader is too demanding for live rendering; click to try anyway"
         >
-          paused — heavy piece · click to resume
+          paused — heavy piece · click to attempt
         </button>
       )}
     </div>

@@ -9,7 +9,7 @@ import { q, type PieceRow } from "./db.js";
 import { emitStudio } from "./bus.js";
 import { renderShader } from "./renderer.js";
 import { maybeResearch } from "./tavily.js";
-import { muse, artisan, critic, finalize, type Brief, type Critique } from "./agents.js";
+import { muse, artisan, critic, finalize, resetUsageTally, summarizeUsage, type Brief, type Critique } from "./agents.js";
 
 const COMPILE_RETRIES = 3;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -36,6 +36,7 @@ function setPhase(phase: string, pieceId: number | null = state.currentPieceId) 
 async function composePiece(piece: PieceRow): Promise<void> {
   const id = piece.id;
   state.currentPieceId = id;
+  resetUsageTally();
   await q.setStatus(id, "composing");
   emitStudio("piece.started", id, { theme: piece.theme, patron: piece.patron });
 
@@ -114,7 +115,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
     attempts.push({ critique: verdict, glsl: draft.glsl });
   }
 
-  // 4 — Finalize or decline
+  // 4 — Finalize or decline, and file the ledger
   if (approvedGlsl) {
     setPhase("finalizing");
     const { title, statement } = await finalize({ brief, glsl: approvedGlsl, critiqueHistory });
@@ -124,6 +125,9 @@ async function composePiece(piece: PieceRow): Promise<void> {
     await q.declinePiece(id, iterationsUsed);
     emitStudio("piece.declined", id, { iterations: iterationsUsed });
   }
+  const ledger = summarizeUsage();
+  await q.setPieceLedger(id, ledger).catch(() => {});
+  emitStudio("studio.ledger", id, { cost_usd: ledger.cost_usd, output_tokens: ledger.output_tokens, calls: ledger.calls });
 }
 
 async function maybeAutoCreate(): Promise<PieceRow | null> {
