@@ -66,6 +66,7 @@ export async function ensureSchema(): Promise<void> {
     );
     alter table pieces add column if not exists commissioned_by int references users(id);
     alter table pieces add column if not exists ledger jsonb;
+    alter table pieces add column if not exists curator_note text;
     create index if not exists idx_pieces_status on pieces(status);
     create index if not exists idx_iterations_piece on iterations(piece_id);
     create index if not exists idx_events_piece on events(piece_id);
@@ -114,6 +115,57 @@ export const q = {
       [theme, patron, userId]
     );
     return r.rows[0];
+  },
+
+  // ── Curator's prerogative ──
+
+  // Send a finished piece back to the studio, optionally with direction.
+  async curatorReiterate(id: number, note: string | null): Promise<PieceRow | null> {
+    const r = await pool.query(
+      `update pieces set status = 'queued', curator_note = $2
+       where id = $1 and status in ('approved','declined','error','rejected') returning *`,
+      [id, note]
+    );
+    return r.rows[0] ?? null;
+  },
+
+  async clearCuratorNote(id: number): Promise<void> {
+    await pool.query("update pieces set curator_note = null where id = $1", [id]);
+  },
+
+  // Curator override: hang a specific rendered draft in the gallery.
+  async approveDraftOverride(pieceId: number, idx: number): Promise<PieceRow | null> {
+    const it = await pool.query(
+      "select glsl from iterations where piece_id = $1 and idx = $2 and compile_ok = true",
+      [pieceId, idx]
+    );
+    if (!it.rows[0]) return null;
+    const r = await pool.query(
+      `update pieces set status = 'approved', glsl = $2, approved_at = now(),
+         title = coalesce(title, brief->>'title_working', 'Untitled'),
+         statement = coalesce(statement, 'Hung by the curator''s decision.')
+       where id = $1 returning *`,
+      [pieceId, it.rows[0].glsl]
+    );
+    return r.rows[0] ?? null;
+  },
+
+  // Next free iteration index (re-iterated pieces keep counting: Draft 4, 5…)
+  async nextIterationIdx(pieceId: number): Promise<number> {
+    const r = await pool.query(
+      "select coalesce(max(idx), -1) + 1 as next from iterations where piece_id = $1",
+      [pieceId]
+    );
+    return r.rows[0].next;
+  },
+
+  async lastCritiquedIteration(pieceId: number): Promise<{ glsl: string; critique: unknown } | null> {
+    const r = await pool.query(
+      `select glsl, critique from iterations
+       where piece_id = $1 and critique is not null order by idx desc limit 1`,
+      [pieceId]
+    );
+    return r.rows[0] ?? null;
   },
 
   async setPieceLedger(id: number, ledger: unknown): Promise<void> {

@@ -87,6 +87,31 @@ export function buildServer() {
     res.json({ ...publicUser(target), requested_at: target.requested_at, approved_at: target.approved_at });
   });
 
+  // ── Curator's prerogative: sole discretion over iteration ─────────
+
+  // Send a finished piece back to the studio, with optional direction.
+  app.post("/api/admin/pieces/:id/reiterate", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    const note = String(req.body?.note ?? "").trim().slice(0, 1000) || null;
+    const piece = await q.curatorReiterate(Number(req.params.id), note);
+    if (!piece) return res.status(409).json({ error: "piece must be finished (approved/declined) to re-iterate" });
+    emitStudio("curator.reiterate", piece.id, { title: piece.title, note });
+    res.json(piece);
+  });
+
+  // Hang a specific rendered draft — the curator's override of the Critic.
+  app.post("/api/admin/pieces/:id/hang-draft", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    const idx = Number(req.body?.idx);
+    if (!Number.isInteger(idx)) return res.status(400).json({ error: "idx required" });
+    const piece = await q.approveDraftOverride(Number(req.params.id), idx);
+    if (!piece) return res.status(404).json({ error: "no rendered draft at that index" });
+    emitStudio("curator.hung_draft", piece.id, { title: piece.title, idx });
+    res.json(piece);
+  });
+
   // ── Pieces ────────────────────────────────────────────────────────
 
   app.get("/api/pieces", async (req, res) => {

@@ -196,6 +196,7 @@ export interface ArtisanContext {
   brief: Brief;
   priorAttempts: { critique: Critique; glsl: string }[];
   compileError?: { log: string; glsl: string };
+  curatorNote?: string | null;
 }
 
 export async function artisan(
@@ -203,6 +204,12 @@ export async function artisan(
   onDelta?: (text: string) => void
 ): Promise<ArtisanDraft> {
   const parts: string[] = [`## The brief\n${JSON.stringify(ctx.brief, null, 2)}`];
+
+  if (ctx.curatorNote) {
+    parts.push(
+      `## The curator's direction (highest authority)\nThe human curator who owns this gallery has personally sent this piece back to the studio with direction. This outranks everything except the shader contract:\n"${ctx.curatorNote}"`
+    );
+  }
 
   if (ctx.priorAttempts.length > 0) {
     const last = ctx.priorAttempts[ctx.priorAttempts.length - 1];
@@ -317,6 +324,7 @@ export async function critic(args: {
   iteration: number;
   maxIterations: number;
   artisanNotes: string;
+  curatorNote?: string | null;
 }): Promise<Critique> {
   const isFinal = args.iteration >= args.maxIterations - 1;
   const content: Anthropic.ContentBlockParam[] = [
@@ -324,6 +332,9 @@ export async function critic(args: {
       type: "text",
       text:
         `## The brief\n${JSON.stringify(args.brief, null, 2)}\n\n` +
+        (args.curatorNote
+          ? `## The curator's direction\nThe human curator personally sent this piece back with direction — judge fidelity to it as seriously as fidelity to the brief:\n"${args.curatorNote}"\n\n`
+          : "") +
         `## Artist's notes\n${args.artisanNotes || "(none)"}\n\n` +
         `## Review context\nThis is iteration ${args.iteration + 1} of at most ${args.maxIterations}.` +
         (isFinal

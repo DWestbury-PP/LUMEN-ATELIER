@@ -40,56 +40,70 @@ async function composePiece(piece: PieceRow): Promise<void> {
   await q.setStatus(id, "composing");
   emitStudio("piece.started", id, { theme: piece.theme, patron: piece.patron });
 
-  // 1 — The Muse writes the brief (optionally grounded in research)
-  setPhase("brief");
-  const research = await maybeResearch(piece.theme);
-  if (research) emitStudio("muse.research", id, { subject: research.subject });
-  const brief: Brief = await muse(piece.theme, research);
-  await q.setBrief(id, brief);
-  emitStudio("muse.brief", id, { brief });
+  const curatorNote = (piece as PieceRow & { curator_note?: string | null }).curator_note ?? null;
+
+  // 1 — The brief: written by the Muse, or reused when the curator sends a
+  // finished piece back for further iteration.
+  let brief: Brief;
+  if (piece.brief) {
+    brief = piece.brief as Brief;
+    if (curatorNote) emitStudio("curator.direction", id, { note: curatorNote });
+  } else {
+    setPhase("brief");
+    const research = await maybeResearch(piece.theme);
+    if (research) emitStudio("muse.research", id, { subject: research.subject });
+    brief = await muse(piece.theme, research);
+    await q.setBrief(id, brief);
+    emitStudio("muse.brief", id, { brief });
+  }
 
   // 2 — Draft / render / critique loop
   const attempts: { critique: Critique; glsl: string }[] = [];
   const critiqueHistory: Critique[] = [];
+  const idxBase = await q.nextIterationIdx(id);
+  if (idxBase > 0) {
+    const last = await q.lastCritiquedIteration(id);
+    if (last?.critique) attempts.push({ critique: last.critique as Critique, glsl: last.glsl });
+  }
   let approvedGlsl: string | null = null;
   let iterationsUsed = 0;
 
   for (let iter = 0; iter < config.maxIterations; iter++) {
     iterationsUsed = iter + 1;
     setPhase("drafting");
-    emitStudio("artisan.started", id, { iteration: iter });
+    emitStudio("artisan.started", id, { iteration: idxBase + iter });
 
     // Draft, with compile-repair inner loop
     let draft = await artisan(
-      { brief, priorAttempts: attempts },
+      { brief, priorAttempts: attempts, curatorNote },
       (text) => emitStudio("artisan.delta", id, { text })
     );
-    emitStudio("artisan.draft", id, { iteration: iter, notes: draft.notes, glsl: draft.glsl });
+    emitStudio("artisan.draft", id, { iteration: idxBase + iter, notes: draft.notes, glsl: draft.glsl });
 
     setPhase("rendering");
     let render = await renderShader(draft.glsl);
     let repairs = 0;
     while (!render.ok && (render.stage === "compile" || render.stage === "link") && repairs < COMPILE_RETRIES) {
       repairs++;
-      emitStudio("artisan.compile_error", id, { iteration: iter, attempt: repairs, log: (render.log || "").slice(0, 1500) });
+      emitStudio("artisan.compile_error", id, { iteration: idxBase + iter, attempt: repairs, log: (render.log || "").slice(0, 1500) });
       draft = await artisan(
-        { brief, priorAttempts: attempts, compileError: { log: render.log || "unknown", glsl: draft.glsl } },
+        { brief, priorAttempts: attempts, curatorNote, compileError: { log: render.log || "unknown", glsl: draft.glsl } },
         (text) => emitStudio("artisan.delta", id, { text })
       );
-      emitStudio("artisan.draft", id, { iteration: iter, notes: draft.notes, glsl: draft.glsl, repaired: true });
+      emitStudio("artisan.draft", id, { iteration: idxBase + iter, notes: draft.notes, glsl: draft.glsl, repaired: true });
       render = await renderShader(draft.glsl);
     }
 
     if (!render.ok || !render.frames) {
-      await q.insertIteration(id, iter, {
+      await q.insertIteration(id, idxBase + iter, {
         glsl: draft.glsl, artisanNotes: draft.notes, compileOk: false,
         compileLog: render.log || "render failed", frames: null, critique: null,
       });
-      emitStudio("piece.render_failed", id, { iteration: iter, log: (render.log || "").slice(0, 1500) });
+      emitStudio("piece.render_failed", id, { iteration: idxBase + iter, log: (render.log || "").slice(0, 1500) });
       continue; // try a fresh iteration if budget remains
     }
 
-    emitStudio("iteration.rendered", id, { iteration: iter, frames: render.frames, glsl: draft.glsl });
+    emitStudio("iteration.rendered", id, { iteration: idxBase + iter, frames: render.frames, glsl: draft.glsl });
 
     // 3 — The Critic looks
     setPhase("critique");
@@ -99,13 +113,14 @@ async function composePiece(piece: PieceRow): Promise<void> {
       iteration: iter,
       maxIterations: config.maxIterations,
       artisanNotes: draft.notes,
+      curatorNote,
     });
     critiqueHistory.push(verdict);
-    await q.insertIteration(id, iter, {
+    await q.insertIteration(id, idxBase + iter, {
       glsl: draft.glsl, artisanNotes: draft.notes, compileOk: true,
       compileLog: null, frames: render.frames, critique: verdict,
     });
-    emitStudio("critic.verdict", id, { iteration: iter, verdict });
+    emitStudio("critic.verdict", id, { iteration: idxBase + iter, verdict });
 
     if (verdict.verdict === "approve") {
       approvedGlsl = draft.glsl;
@@ -125,6 +140,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
     await q.declinePiece(id, iterationsUsed);
     emitStudio("piece.declined", id, { iterations: iterationsUsed });
   }
+  await q.clearCuratorNote(id).catch(() => {});
   const ledger = summarizeUsage();
   await q.setPieceLedger(id, ledger).catch(() => {});
   emitStudio("studio.ledger", id, { cost_usd: ledger.cost_usd, output_tokens: ledger.output_tokens, calls: ledger.calls });

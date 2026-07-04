@@ -1,22 +1,62 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import ShaderCanvas from "../gl/ShaderCanvas";
 import { api } from "../lib/api";
+import { useAuth } from "../lib/AuthContext";
 import type { PieceDetail } from "../lib/types";
 
 export default function PiecePage() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [piece, setPiece] = useState<PieceDetail | null>(null);
   const [viewGlsl, setViewGlsl] = useState<string | null>(null);
   const [viewingDraft, setViewingDraft] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+  const [curatorBusy, setCuratorBusy] = useState(false);
+  const [curatorMsg, setCuratorMsg] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!id) return;
     api.piece(id).then((p) => {
       setPiece(p);
       setViewGlsl(p.glsl ?? p.iterationRows.at(-1)?.glsl ?? null);
     }).catch(() => {});
   }, [id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const isAdmin = user?.role === "admin";
+  const isTerminal = piece && ["approved", "declined", "error", "rejected"].includes(piece.status);
+
+  async function reiterate() {
+    if (!piece) return;
+    setCuratorBusy(true);
+    setCuratorMsg(null);
+    const res = await fetch(`/api/admin/pieces/${piece.id}/reiterate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ note }),
+    });
+    setCuratorBusy(false);
+    if (res.ok) {
+      setCuratorMsg("Sent back to the studio — the ensemble will resume shortly. Watch the studio floor.");
+      setNote("");
+      load();
+    } else {
+      const b = await res.json().catch(() => ({}));
+      setCuratorMsg(b.error || "That didn't work.");
+    }
+  }
+
+  async function hangDraft(idx: number) {
+    if (!piece) return;
+    const res = await fetch(`/api/admin/pieces/${piece.id}/hang-draft`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idx }),
+    });
+    if (res.ok) load();
+  }
 
   if (!piece) return <div className="empty">Fetching the piece…</div>;
 
@@ -57,6 +97,29 @@ export default function PiecePage() {
             <p className="statement" style={{ fontSize: 13, marginTop: 14 }}>
               Commissioned{piece.patron ? ` by ${piece.patron}` : ""} on the theme: “{piece.theme}”
             </p>
+          )}
+
+          {isAdmin && isTerminal && (
+            <div className="curator-box">
+              <h3>Curator's prerogative</h3>
+              <p>
+                Send this piece back to the studio for further iteration. Your direction
+                outranks the Critic's notes; the Artisan resumes from the latest draft.
+              </p>
+              <textarea
+                rows={2}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Optional direction, e.g. 'the palette drifts too warm — hold the original blues'"
+                maxLength={1000}
+              />
+              <div className="row" style={{ justifyContent: "flex-start", marginTop: 12 }}>
+                <button className="btn solid" onClick={reiterate} disabled={curatorBusy}>
+                  {curatorBusy ? "Sending…" : "Send back to the studio"}
+                </button>
+              </div>
+              {curatorMsg && <p className="fine-warn" style={{ marginTop: 10 }}>{curatorMsg}</p>}
+            </div>
           )}
         </div>
 
@@ -100,8 +163,12 @@ export default function PiecePage() {
             <div className="iteration" key={it.idx}>
               <header>
                 <span className="idx">Draft {it.idx + 1}</span>
-                {it.critique && <span className={`badge ${it.critique.verdict}`}>{it.critique.verdict}</span>}
-                {it.compile_ok === false && <span className="badge decline">render failed</span>}
+                {it.critique && (
+                  <span className={`verdict-label ${it.critique.verdict}`}>
+                    critic&thinsp;—&thinsp;{it.critique.verdict}
+                  </span>
+                )}
+                {it.compile_ok === false && <span className="verdict-label decline">render failed</span>}
                 {it.critique && (
                   <span className="scores">
                     <span>comp <b>{it.critique.scores.composition}</b></span>
@@ -132,6 +199,11 @@ export default function PiecePage() {
                 <button className="linklike" onClick={() => showDraft(it.idx, it.glsl)}>
                   ▸ view this draft live
                 </button>
+                {isAdmin && it.compile_ok && piece.glsl !== it.glsl && (
+                  <button className="linklike" style={{ marginLeft: 20 }} onClick={() => hangDraft(it.idx)}>
+                    ▸ hang this draft (curator override)
+                  </button>
+                )}
               </div>
             </div>
           ))}
