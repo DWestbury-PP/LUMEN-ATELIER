@@ -251,7 +251,7 @@ export async function artisan(
 
   const stream = client.messages.stream({
     model: config.models.artisan,
-    max_tokens: 20000,
+    max_tokens: 40000,
     thinking: { type: "adaptive", display: "summarized" },
     system: ARTISAN_SYSTEM,
     messages: [{ role: "user", content: parts.join("\n\n") }],
@@ -266,6 +266,11 @@ export async function artisan(
   }
   const msg = await stream.finalMessage();
   record(config.models.artisan, msg.usage);
+  if (msg.stop_reason === "max_tokens") {
+    // Deep thinking on a hard brief ate the budget mid-shader — never try
+    // to salvage a truncated draft; the retry path handles it.
+    throw new Error("Artisan ran out of tokens mid-shader (truncated draft discarded)");
+  }
   const full = textOf(msg);
 
   const match = full.match(/```(?:glsl|c|cpp)?\s*\n([\s\S]*?)```/);
