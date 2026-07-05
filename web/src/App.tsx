@@ -24,29 +24,32 @@ function Chrome() {
   }
 
   return (
-    <div className="site">
-      <header className="masthead">
-        <NavLink to="/" className="wordmark">
-          <span className="diamond" aria-hidden="true" />Lumen Atelier
-        </NavLink>
-        <nav className="nav">
-          <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>Gallery</NavLink>
-          <NavLink to="/studio" className={({ isActive }) => (isActive ? "active" : "")}>Studio Floor</NavLink>
-          <NavLink to="/exhibit">Exhibit</NavLink>
-          <NavLink to="/about" className={({ isActive }) => (isActive ? "active" : "")}>About</NavLink>
-          {user?.role === "admin" && (
-            <NavLink to="/patrons" className={({ isActive }) => (isActive ? "active" : "")}>Patrons</NavLink>
-          )}
-          <button className="btn" onClick={() => setCommissionOpen(true)}>Commission</button>
-          {user && (
-            <span className="account">
-              {user.picture && <img src={user.picture} alt="" referrerPolicy="no-referrer" />}
-              <button className="linklike" onClick={signOut} title={user.email}>sign out</button>
-            </span>
-          )}
-        </nav>
+    <>
+      <header className="masthead-bar">
+        <div className="masthead">
+          <NavLink to="/" className="wordmark">
+            <span className="diamond" aria-hidden="true" />Lumen Atelier
+          </NavLink>
+          <nav className="nav">
+            <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>Gallery</NavLink>
+            <NavLink to="/studio" className={({ isActive }) => (isActive ? "active" : "")}>Studio Floor</NavLink>
+            <NavLink to="/exhibit">Exhibit</NavLink>
+            <NavLink to="/about" className={({ isActive }) => (isActive ? "active" : "")}>About</NavLink>
+            {user?.role === "admin" && (
+              <NavLink to="/patrons" className={({ isActive }) => (isActive ? "active" : "")}>Patrons</NavLink>
+            )}
+            <button className="btn" onClick={() => setCommissionOpen(true)}>Commission</button>
+            {user && (
+              <span className="account">
+                {user.picture && <img src={user.picture} alt="" referrerPolicy="no-referrer" />}
+                <button className="linklike" onClick={signOut} title={user.email}>sign out</button>
+              </span>
+            )}
+          </nav>
+        </div>
       </header>
 
+      <div className="site">
       <Routes>
         <Route path="/" element={<Gallery onCommission={() => setCommissionOpen(true)} />} />
         <Route path="/piece/:id" element={<PiecePage />} />
@@ -65,7 +68,8 @@ function Chrome() {
       </footer>
 
       {commissionOpen && <CommissionModal onClose={() => setCommissionOpen(false)} />}
-    </div>
+      </div>
+    </>
   );
 }
 

@@ -42,13 +42,26 @@ button { font-family: inherit; }
   padding: 0 clamp(16px, 4vw, 48px) 96px;
 }
 
+/* Sticky glass bar: full viewport width, above the scrolling work but
+   beneath the modal backdrop (z 50). The inner .masthead re-centers to
+   the same column as .site so nothing shifts horizontally. */
+.masthead-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(8, 8, 11, 0.82);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  border-bottom: 1px solid var(--gold-faint);
+}
 .masthead {
+  max-width: 1280px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 28px 0 20px;
-  border-bottom: 1px solid var(--gold-faint);
+  padding: 20px clamp(16px, 4vw, 48px) 16px;
   flex-wrap: wrap;
 }
 
@@ -478,11 +491,14 @@ footer.colophon a { color: var(--ink-dim); border-bottom: 1px solid var(--gold-f
 @media (max-width: 720px) {
   .site { padding: 0 16px 64px; }
 
+  /* The stacked mobile masthead is tall — pinning it would eat half the
+     screen. It scrolls away; the phone's edge swipe/back covers nav. */
+  .masthead-bar { position: static; }
   .masthead {
     flex-direction: column;
     align-items: stretch;
     gap: 14px;
-    padding: 18px 0 14px;
+    padding: 18px 16px 14px;
   }
   .wordmark { font-size: 21px; letter-spacing: 0.12em; }
   .wordmark .diamond { transform: translateY(-2px) rotate(45deg); }
