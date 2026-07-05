@@ -8,11 +8,14 @@
 //   -> { ok: true,  frames: ["data:image/png;base64,...", ...] }
 //   -> { ok: false, stage: "compile"|"link"|"runtime", log: "..." }
 
+// Playwright, not Debian's chromium: apt's unpinned browser upgraded itself
+// (149 -> 150) during a cache-cold rebuild and stopped launching in the
+// container. Playwright's Chromium is pinned to the library version and
+// ships for both amd64 (Railway) and arm64 (local compose on the Mac mini).
 import http from "node:http";
-import puppeteer from "puppeteer-core";
+import { chromium } from "playwright";
 
 const PORT = Number(process.env.PORT || 8282);
-const CHROMIUM = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
 const DEFAULT_TIMES = [0.8, 3.5, 8.2, 15.0];
 const MAX_DIM = 1024;
 const RENDER_TIMEOUT_MS = 45_000;
@@ -94,9 +97,10 @@ async function ensurePage() {
   if (browser) {
     try { await browser.close(); } catch {}
   }
-  browser = await puppeteer.launch({
-    executablePath: CHROMIUM,
+  browser = await chromium.launch({
     headless: true,
+    channel: "chromium", // full Chromium (new headless), not the separate headless shell
+
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -114,8 +118,8 @@ async function ensurePage() {
 async function render(glsl, width, height, times) {
   const p = await ensurePage();
   return p.evaluate(
-    (g, w, h, t) => window.renderShader(g, w, h, t),
-    glsl, width, height, times
+    ([g, w, h, t]) => window.renderShader(g, w, h, t),
+    [glsl, width, height, times]
   );
 }
 
@@ -166,7 +170,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => console.log(`[renderer] listening on :${PORT} (chromium: ${CHROMIUM})`));
+server.listen(PORT, () => console.log(`[renderer] listening on :${PORT} (playwright chromium)`));
 
 process.on("SIGTERM", async () => {
   try { if (browser) await browser.close(); } catch {}
