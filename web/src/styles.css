@@ -413,6 +413,42 @@ label.inspo-add {
 .btn.danger { color: var(--decline); border-color: rgba(229,115,115,0.35); }
 .btn.danger:hover { background: rgba(229,115,115,0.08); border-color: var(--decline); }
 
+/* ── About ── */
+
+.about-body { max-width: 680px; padding-bottom: 96px; }
+.about-body p {
+  color: var(--ink-dim);
+  font-size: 16px;
+  line-height: 1.75;
+  margin-top: 18px;
+}
+.about-body p em { color: var(--ink); font-style: italic; }
+.about-body a { color: var(--gold); }
+.about-body h2 {
+  margin-top: 44px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.about-sig {
+  margin-top: 52px !important;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 19px;
+  color: var(--ink);
+  line-height: 1.6;
+}
+.about-sig span { font-size: 14px; color: var(--ink-faint); font-family: var(--font-body); font-style: normal; }
+.about-coda {
+  margin-top: 34px !important;
+  padding-top: 26px;
+  border-top: 1px solid var(--gold-faint);
+  font-size: 14px !important;
+  color: var(--ink-faint) !important;
+}
+
 /* ── Misc ── */
 
 .empty { padding: 80px 0; text-align: center; color: var(--ink-faint); font-style: italic; font-family: var(--font-display); font-size: 19px; }

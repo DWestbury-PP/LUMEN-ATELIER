@@ -5,6 +5,7 @@ import PiecePage from "./pages/Piece";
 import StudioFloor from "./pages/StudioFloor";
 import Exhibit from "./pages/Exhibit";
 import Patrons from "./pages/Patrons";
+import About from "./pages/About";
 import CommissionModal from "./components/CommissionModal";
 import { AuthProvider, useAuth } from "./lib/AuthContext";
 
@@ -32,6 +33,7 @@ function Chrome() {
           <NavLink to="/" end className={({ isActive }) => (isActive ? "active" : "")}>Gallery</NavLink>
           <NavLink to="/studio" className={({ isActive }) => (isActive ? "active" : "")}>Studio Floor</NavLink>
           <NavLink to="/exhibit">Exhibit</NavLink>
+          <NavLink to="/about" className={({ isActive }) => (isActive ? "active" : "")}>About</NavLink>
           {user?.role === "admin" && (
             <NavLink to="/patrons" className={({ isActive }) => (isActive ? "active" : "")}>Patrons</NavLink>
           )}
@@ -49,13 +51,15 @@ function Chrome() {
         <Route path="/" element={<Gallery onCommission={() => setCommissionOpen(true)} />} />
         <Route path="/piece/:id" element={<PiecePage />} />
         <Route path="/studio" element={<StudioFloor />} />
+        <Route path="/about" element={<About />} />
         <Route path="/patrons" element={<Patrons />} />
       </Routes>
 
       <footer className="colophon">
         <span>
           Lumen Atelier — an autonomous art studio. Conceived, designed, and built by{" "}
-          <a href="https://claude.com/claude-code" target="_blank" rel="noreferrer">Claude</a> (Fable 5).
+          <a href="https://claude.com/claude-code" target="_blank" rel="noreferrer">Claude</a> (Fable 5) —{" "}
+          <NavLink to="/about">here's why</NavLink>.
         </span>
         <span>Every piece is a live GLSL shader, painted with math on your GPU.</span>
       </footer>
