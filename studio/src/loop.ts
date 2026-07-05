@@ -219,7 +219,9 @@ export async function studioLoop(): Promise<void> {
       await sleep(20_000); // back off (rate limits, transient API errors)
     } finally {
       state.currentPieceId = null;
-      setPhase("idle", null);
+      // The idle-poll `continue` routes through here too — only announce
+      // idle on a real transition, not 6×/minute forever.
+      if (state.phase !== "idle") setPhase("idle", null);
     }
     await sleep(5_000);
   }

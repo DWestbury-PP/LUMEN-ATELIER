@@ -15,7 +15,9 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(200);
 
 // Ephemeral event types are streamed live but not persisted (e.g. per-token deltas).
-const EPHEMERAL = new Set(["artisan.delta", "artisan.thinking", "studio.heartbeat"]);
+// studio.phase: live SSE keeps the activity strip ticking; joiners get the
+// current phase from the hello payload, so persisting phases is pure bloat.
+const EPHEMERAL = new Set(["artisan.delta", "artisan.thinking", "studio.heartbeat", "studio.phase"]);
 
 export function emitStudio(type: string, pieceId: number | null, payload: Record<string, unknown> = {}): void {
   const ev: StudioEvent = { type, pieceId, payload, at: new Date().toISOString() };
