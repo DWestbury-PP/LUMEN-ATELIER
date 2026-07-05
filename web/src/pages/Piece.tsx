@@ -158,7 +158,7 @@ export default function PiecePage() {
                 placeholder="Optional direction, e.g. 'the palette drifts too warm — hold the original blues'"
                 maxLength={1000}
               />
-              <div className="row" style={{ justifyContent: "flex-start", marginTop: 12, flexWrap: "wrap", gap: 10 }}>
+              <div className="row" style={{ marginTop: 12 }}>
                 <button className="btn solid" onClick={reiterate} disabled={curatorBusy}
                   title="Re-queue THIS piece for more drafts under your direction">
                   {curatorBusy ? "Working…" : "Send back to the studio"}
@@ -167,7 +167,7 @@ export default function PiecePage() {
                   title="Create a NEW piece that starts from this one's final draft — this piece stays untouched">
                   Fork &amp; redraft
                 </button>
-                <button className="btn danger" onClick={deletePiece} disabled={curatorBusy}
+                <button className="btn danger" style={{ marginLeft: "auto" }} onClick={deletePiece} disabled={curatorBusy}
                   title="Permanently delete this piece and its history">
                   Delete
                 </button>

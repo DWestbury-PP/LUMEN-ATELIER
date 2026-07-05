@@ -191,7 +191,7 @@ button { font-family: inherit; }
   border: 1px solid var(--gold-soft);
   background: var(--bg-raise);
   padding: 20px 22px;
-  max-width: 560px;
+  max-width: 640px; /* wide enough for all three actions on one row */
 }
 .curator-box h3 { font-size: 11px; letter-spacing: 0.28em; text-transform: uppercase; color: var(--gold); font-weight: 400; margin-bottom: 10px; }
 .curator-box p { font-size: 13px; color: var(--ink-dim); margin-bottom: 12px; }
@@ -361,7 +361,8 @@ button { font-family: inherit; }
   resize: vertical;
 }
 .modal input:focus, .modal textarea:focus { outline: none; border-color: var(--gold-soft); }
-.modal .row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 26px; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.modal .row { justify-content: flex-end; margin-top: 26px; }
 .modal .error { color: var(--decline); font-size: 12.5px; margin-top: 12px; }
 .modal .ok { color: var(--approve); font-size: 13.5px; margin-top: 12px; }
 
