@@ -5,6 +5,8 @@ import { config, hasKey } from "./config.js";
 import { q } from "./db.js";
 import { onStudio, emitStudio } from "./bus.js";
 import { state } from "./loop.js";
+import { renderShader } from "./renderer.js";
+import { finalize, type Brief, type Critique } from "./agents.js";
 import {
   clearSessionCookie, isAdminEmail, publicUser, setSessionCookie,
   userFromRequest, verifyGoogleCredential,
@@ -127,14 +129,44 @@ export function buildServer() {
     res.json(piece);
   });
 
-  // Hang a specific rendered draft — the curator's override of the Critic.
+  // Hang a specific draft — the curator's override of the Critic. Works for
+  // drafts whose render "failed" because the renderer was down: we verify by
+  // re-rendering now (backfilling frames for the record), refuse only on a
+  // genuine compile error, and let the Artisan title an untitled piece.
   app.post("/api/admin/pieces/:id/hang-draft", async (req, res) => {
     const user = await userFromRequest(req);
     if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    const id = Number(req.params.id);
     const idx = Number(req.body?.idx);
     if (!Number.isInteger(idx)) return res.status(400).json({ error: "idx required" });
-    const piece = await q.approveDraftOverride(Number(req.params.id), idx);
-    if (!piece) return res.status(404).json({ error: "no rendered draft at that index" });
+
+    const detail = await q.getPiece(id);
+    const draft = (detail?.iterationRows as { idx: number; glsl: string | null; compile_ok: boolean | null }[] | undefined)
+      ?.find((it) => it.idx === idx);
+    if (!detail || !draft?.glsl) return res.status(404).json({ error: "no draft at that index" });
+
+    if (!draft.compile_ok) {
+      const verify = await renderShader(draft.glsl);
+      if (verify.ok && verify.frames) {
+        await q.markIterationRendered(id, idx, verify.frames).catch(() => {});
+      } else if (verify.stage === "compile" || verify.stage === "link") {
+        return res.status(409).json({ error: `this draft does not compile: ${(verify.log || "").slice(0, 300)}` });
+      }
+      // Renderer down or runtime grumble: the curator watched it run live —
+      // their eyes outrank a napping renderer. Proceed without frames.
+    }
+
+    let meta: { title: string; statement: string } | undefined;
+    if (!detail.title && detail.brief && hasKey()) {
+      const existingTitles = (await q.recentApprovedSummaries(20).catch(() => [])).map((w) => w.title);
+      meta = await finalize({
+        brief: detail.brief as Brief, glsl: draft.glsl,
+        critiqueHistory: [] as Critique[], existingTitles,
+      }).catch(() => undefined);
+    }
+
+    const piece = await q.approveDraftOverride(id, idx, meta);
+    if (!piece) return res.status(404).json({ error: "no draft at that index" });
     emitStudio("curator.hung_draft", piece.id, { title: piece.title, idx });
     res.json(piece);
   });

@@ -170,9 +170,15 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
 
       // Watchdog: if rAF gaps stretch while we're actively drawing, the GPU is
       // being strangled by this shader — stop before the compositor gives up.
+      // Monster gaps are NOT the shader's doing: a GPU-strangling shader
+      // produces a steady drumbeat of ~0.4-1s frames, while a multi-second
+      // gap means the main thread stalled elsewhere (an SSE burst landing,
+      // a heavy re-render, a background tab waking). Don't convict for those.
       if (lastTick > 0) {
         const gap = now - lastTick;
-        if (gap > SLOW_FRAME_MS) {
+        if (gap > SLOW_FRAME_MS * 7) {
+          slowStreak = 0;
+        } else if (gap > SLOW_FRAME_MS) {
           slowStreak++;
           if (slowStreak >= SLOW_FRAME_LIMIT) { setStatus("heavy"); return; }
         } else if (gap < SLOW_FRAME_MS / 2) {

@@ -188,21 +188,36 @@ export const q = {
     await pool.query("update pieces set curator_note = null where id = $1", [id]);
   },
 
-  // Curator override: hang a specific rendered draft in the gallery.
-  async approveDraftOverride(pieceId: number, idx: number): Promise<PieceRow | null> {
+  // Curator override: hang a specific draft in the gallery. No compile_ok
+  // gate — compile_ok=false also covers "renderer was down", and the curator
+  // has watched the draft run live in their own browser before hanging it.
+  async approveDraftOverride(
+    pieceId: number, idx: number,
+    meta?: { title?: string; statement?: string }
+  ): Promise<PieceRow | null> {
     const it = await pool.query(
-      "select glsl from iterations where piece_id = $1 and idx = $2 and compile_ok = true",
+      "select glsl from iterations where piece_id = $1 and idx = $2 and glsl is not null",
       [pieceId, idx]
     );
     if (!it.rows[0]) return null;
     const r = await pool.query(
       `update pieces set status = 'approved', glsl = $2, approved_at = now(),
-         title = coalesce(title, brief->>'title_working', 'Untitled'),
-         statement = coalesce(statement, 'Hung by the curator''s decision.')
+         title = coalesce($3, title, brief->>'title_working', 'Untitled'),
+         statement = coalesce($4, statement, 'Hung by the curator''s decision.')
        where id = $1 returning *`,
-      [pieceId, it.rows[0].glsl]
+      [pieceId, it.rows[0].glsl, meta?.title ?? null, meta?.statement ?? null]
     );
     return r.rows[0] ?? null;
+  },
+
+  // Backfill a verification render onto a draft (e.g. one that failed only
+  // because the renderer was unreachable when it was made).
+  async markIterationRendered(pieceId: number, idx: number, frames: string[]): Promise<void> {
+    await pool.query(
+      `update iterations set compile_ok = true, compile_log = null, frames = $3
+       where piece_id = $1 and idx = $2`,
+      [pieceId, idx, JSON.stringify(frames)]
+    );
   },
 
   // Next free iteration index (re-iterated pieces keep counting: Draft 4, 5…)

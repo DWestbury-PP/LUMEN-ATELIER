@@ -147,13 +147,16 @@ const server = http.createServer((req, res) => {
       : DEFAULT_TIMES;
 
     queue = queue.then(async () => {
+      const t0 = Date.now();
       try {
         const result = await Promise.race([
           render(glsl, width, height, times),
           new Promise((_, rej) => setTimeout(() => rej(new Error("render timeout")), RENDER_TIMEOUT_MS)),
         ]);
+        console.log(`[renderer] render ${result.ok ? "ok" : `fail:${result.stage}`} ${Date.now() - t0}ms (${glsl.length} chars)`);
         json(res, 200, result);
       } catch (err) {
+        console.log(`[renderer] render crashed ${Date.now() - t0}ms: ${String(err.message || err)}`);
         // A hung/crashed page poisons the browser; recycle it.
         try { if (browser) await browser.close(); } catch {}
         browser = null; page = null;

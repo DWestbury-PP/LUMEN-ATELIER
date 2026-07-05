@@ -83,13 +83,23 @@ export default function PiecePage() {
   }
 
   async function hangDraft(idx: number) {
-    if (!piece) return;
+    if (!piece || curatorBusy) return;
+    setCuratorBusy(true);
+    setCuratorMsg(null);
+    // Server may verify-render the draft and title an untitled piece first.
     const res = await fetch(`/api/admin/pieces/${piece.id}/hang-draft`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ idx }),
     });
-    if (res.ok) load();
+    setCuratorBusy(false);
+    if (res.ok) {
+      setCuratorMsg(`Draft ${idx + 1} now hangs in the gallery.`);
+      load();
+    } else {
+      const b = await res.json().catch(() => ({}));
+      setCuratorMsg(b.error || "Could not hang that draft.");
+    }
   }
 
   if (!piece) return <div className="empty">Fetching the piece…</div>;
@@ -267,9 +277,9 @@ export default function PiecePage() {
                 <button className="linklike" onClick={() => showDraft(it.idx, it.glsl)}>
                   ▸ view this draft live
                 </button>
-                {isAdmin && it.compile_ok && piece.glsl !== it.glsl && (
-                  <button className="linklike" style={{ marginLeft: 20 }} onClick={() => hangDraft(it.idx)}>
-                    ▸ hang this draft (curator override)
+                {isAdmin && it.glsl && piece.glsl !== it.glsl && (
+                  <button className="linklike" style={{ marginLeft: 20 }} disabled={curatorBusy} onClick={() => hangDraft(it.idx)}>
+                    {curatorBusy ? "hanging…" : "▸ hang this draft (curator override)"}
                   </button>
                 )}
               </div>

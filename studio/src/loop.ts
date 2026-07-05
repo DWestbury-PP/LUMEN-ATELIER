@@ -72,6 +72,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
   }
   let approvedGlsl: string | null = null;
   let iterationsUsed = 0;
+  let parked = false;
 
   for (let iter = 0; iter < config.maxIterations; iter++) {
     iterationsUsed = iter + 1;
@@ -114,6 +115,15 @@ async function composePiece(piece: PieceRow): Promise<void> {
         glsl: draft.glsl, artisanNotes: draft.notes, compileOk: false,
         compileLog: render.log || "render failed", frames: null, critique: null,
       });
+      if (render.stage === "infra") {
+        // The studio's eyes are down and renderShader already waited them
+        // out. Burning more drafts would end in a blind decline — park the
+        // piece instead; the curator can send it back when the renderer is up.
+        emitStudio("piece.parked", id, { log: (render.log || "").slice(0, 500) });
+        await q.setStatus(id, "error");
+        parked = true;
+        break;
+      }
       emitStudio("piece.render_failed", id, { iteration: idxBase + iter, log: (render.log || "").slice(0, 1500) });
       continue; // try a fresh iteration if budget remains
     }
@@ -152,7 +162,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
     const { title, statement } = await finalize({ brief, glsl: approvedGlsl, critiqueHistory, existingTitles });
     await q.approvePiece(id, approvedGlsl, title, statement, iterationsUsed);
     emitStudio("piece.approved", id, { title, statement, iterations: iterationsUsed });
-  } else {
+  } else if (!parked) {
     await q.declinePiece(id, iterationsUsed);
     emitStudio("piece.declined", id, { iterations: iterationsUsed });
   }

@@ -10,6 +10,8 @@ interface FeedItem {
   frames?: string[];
   pieceId?: number | null;
   at?: string;
+  /** Terminal events link to their piece page. */
+  link?: boolean;
 }
 
 interface RawEvent {
@@ -45,7 +47,7 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
     case "curator.deleted":
       return { ...base, who: "studio", label: "The Curator", text: `Removed piece #${p.pieceId} from the gallery permanently.` };
     case "curator.hung_draft":
-      return { ...base, who: "studio", label: "The Curator", text: `Overrides the Critic — draft ${Number(p.idx) + 1} of “${p.title ?? "a piece"}” now hangs in the gallery.` };
+      return { ...base, who: "studio", label: "The Curator", link: true, text: `Overrides the Critic — draft ${Number(p.idx) + 1} of “${p.title ?? "a piece"}” now hangs in the gallery.` };
     case "studio.ledger":
       return { ...base, who: "studio", label: "Ledger", text: `This piece: ${p.calls} model calls, ${Number(p.output_tokens).toLocaleString()} output tokens, ~$${Number(p.cost_usd).toFixed(2)}.` };
     case "artisan.malformed":
@@ -79,11 +81,13 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
       };
     }
     case "piece.approved":
-      return { ...base, who: "studio", label: "Studio", text: `ACCEPTED INTO THE COLLECTION — “${p.title}” after ${p.iterations} draft${p.iterations > 1 ? "s" : ""}.` };
+      return { ...base, who: "studio", label: "Studio", link: true, text: `ACCEPTED INTO THE COLLECTION — “${p.title}” after ${p.iterations} draft${p.iterations > 1 ? "s" : ""}.` };
     case "piece.declined":
-      return { ...base, who: "studio", label: "Studio", text: `The Critic declined the piece after ${p.iterations} drafts. The studio moves on.` };
+      return { ...base, who: "studio", label: "Studio", link: true, text: `The Critic declined the piece after ${p.iterations} drafts. The studio moves on.` };
     case "piece.render_failed":
       return { ...base, who: "studio", label: "Studio", text: "Rendering failed for this draft; the studio abandons it and tries fresh." };
+    case "piece.parked":
+      return { ...base, who: "studio", label: "Studio", link: true, text: "The studio's eyes (the renderer) were unreachable — the piece is parked with its drafts intact. The curator can send it back or hang a draft." };
     case "studio.error":
       return { ...base, who: "studio", label: "Studio", text: `A disturbance in the studio: ${p.message}` };
     case "studio.no_key":
@@ -252,9 +256,9 @@ export default function StudioFloor() {
                   {item.frames.map((f, i) => <img key={i} src={f} alt={`frame ${i + 1}`} />)}
                 </div>
               )}
-              {item.pieceId != null && (item.label === "Studio" && item.text.startsWith("ACCEPTED")) && (
+              {item.pieceId != null && item.link && (
                 <div style={{ marginTop: 8 }}>
-                  <Link className="linklike" to={`/piece/${item.pieceId}`}>▸ view in gallery</Link>
+                  <Link className="linklike" to={`/piece/${item.pieceId}`}>▸ view the piece</Link>
                 </div>
               )}
             </div>
