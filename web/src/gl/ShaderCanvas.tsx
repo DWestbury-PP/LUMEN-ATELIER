@@ -4,6 +4,11 @@
 // Hardened for a gallery of UNVETTED, machine-written shaders:
 //  - a context exists only while the canvas is on-screen (browsers cap ~16
 //    live WebGL contexts; exceeding it silently kills the oldest)
+//  - shader compilation is ASYNC where the driver allows it
+//    (KHR_parallel_shader_compile): querying link status on a fresh
+//    machine-written shader forces a synchronous GL→Metal/HLSL translation
+//    that can stall the browser's GPU process for seconds — the "whole
+//    browser blanks" failure. We poll completion instead of blocking on it.
 //  - webglcontextlost is caught and the canvas self-restores after a beat
 //  - a frame-time watchdog pauses pathologically heavy shaders before they
 //    can stall the GPU long enough to blank the whole browser
@@ -38,10 +43,14 @@ interface Props {
   fpsCap?: number;
   /** Pause rendering (e.g. exhibit layer that's faded out). */
   paused?: boolean;
+  /** Fires once per shader: true when it passed audition and is drawing,
+   *  false if it failed (compile error, too heavy, no context). Lets a
+   *  parent double-buffer — keep the old piece up until the new one is live. */
+  onSettled?: (ok: boolean) => void;
   className?: string;
 }
 
-export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = false, className }: Props) {
+export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = false, onSettled, className }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [visible, setVisible] = useState(false);
@@ -51,6 +60,8 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
   const timeOffset = useMemo(() => Math.random() * 90, []);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const onSettledRef = useRef(onSettled);
+  onSettledRef.current = onSettled;
   const lossCount = useRef(0);
 
   // Watch visibility of the wrapper (not the canvas — the canvas may not exist yet).
@@ -77,10 +88,16 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const gl = canvas.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "low-power" });
-    if (!gl) { setStatus("error"); return; }
-
     let disposed = false;
+    let settledHere = false;
+    const settle = (ok: boolean) => {
+      if (settledHere) return;
+      settledHere = true;
+      onSettledRef.current?.(ok);
+    };
+
+    const gl = canvas.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "low-power" });
+    if (!gl) { setStatus("error"); settle(false); return; }
 
     const onLost = (e: Event) => {
       e.preventDefault();
@@ -90,123 +107,36 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
         // This shader keeps taking the GPU down — retire it. A human can
         // still opt in via the overlay, but we never auto-retry a killer.
         setStatus("heavy");
+        settle(false);
       } else {
         setTimeout(() => setGeneration((g) => g + 1), 1500);
       }
     };
     canvas.addEventListener("webglcontextlost", onLost);
 
-    function compile(type: number, src: string): WebGLShader | null {
-      const sh = gl!.createShader(type)!;
-      gl!.shaderSource(sh, src);
-      gl!.compileShader(sh);
-      if (!gl!.getShaderParameter(sh, gl!.COMPILE_STATUS)) {
-        gl!.deleteShader(sh);
-        return null;
-      }
+    // Compile + link WITHOUT querying status — status queries force the
+    // driver to finish translating the shader synchronously, freezing the
+    // GPU process on big machine-written sources.
+    const mk = (type: number, src: string): WebGLShader => {
+      const sh = gl.createShader(type)!;
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
       return sh;
-    }
-
-    const vs = compile(gl.VERTEX_SHADER, VS);
-    const fs = compile(gl.FRAGMENT_SHADER, glsl);
-    if (!vs || !fs) {
-      canvas.removeEventListener("webglcontextlost", onLost);
-      setStatus("error");
-      return;
-    }
+    };
+    const vs = mk(gl.VERTEX_SHADER, VS);
+    const fs = mk(gl.FRAGMENT_SHADER, glsl);
     const prog = gl.createProgram()!;
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-      canvas.removeEventListener("webglcontextlost", onLost);
-      setStatus("error");
-      return;
-    }
-    gl.useProgram(prog);
-    const uRes = gl.getUniformLocation(prog, "iResolution");
-    const uTime = gl.getUniformLocation(prog, "iTime");
-
-    // ── Audition pass ── one tiny synchronous frame, timed. Shaders that
-    // blow the budget here would stall the GPU at full resolution.
-    canvas.width = PROBE_W;
-    canvas.height = PROBE_H;
-    gl.viewport(0, 0, PROBE_W, PROBE_H);
-    if (uRes) gl.uniform2f(uRes, PROBE_W, PROBE_H);
-    if (uTime) gl.uniform1f(uTime, 0.8 + timeOffset);
-    const probeStart = performance.now();
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.finish();
-    if (performance.now() - probeStart > PROBE_LIMIT_MS) {
-      canvas.removeEventListener("webglcontextlost", onLost);
-      gl.deleteProgram(prog);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
-      setStatus("heavy");
-      return;
-    }
 
     let raf = 0;
-    let lastDraw = 0;
-    let lastTick = 0;
-    let slowStreak = 0;
-    const minFrameGap = 1000 / Math.max(1, fpsCap);
-    const start = performance.now();
-    const dpr = () => Math.min(window.devicePixelRatio || 1, maxDpr);
+    let ro: ResizeObserver | null = null;
 
-    function resize() {
-      const c = canvasRef.current;
-      if (!c) return;
-      const w = Math.max(1, Math.round(c.clientWidth * dpr()));
-      const h = Math.max(1, Math.round(c.clientHeight * dpr()));
-      if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-    }
-
-    function frame(now: number) {
-      if (disposed) return;
-      raf = requestAnimationFrame(frame);
-      if (pausedRef.current || document.hidden) { lastTick = now; return; }
-
-      // Watchdog: if rAF gaps stretch while we're actively drawing, the GPU is
-      // being strangled by this shader — stop before the compositor gives up.
-      // Monster gaps are NOT the shader's doing: a GPU-strangling shader
-      // produces a steady drumbeat of ~0.4-1s frames, while a multi-second
-      // gap means the main thread stalled elsewhere (an SSE burst landing,
-      // a heavy re-render, a background tab waking). Don't convict for those.
-      if (lastTick > 0) {
-        const gap = now - lastTick;
-        if (gap > SLOW_FRAME_MS * 7) {
-          slowStreak = 0;
-        } else if (gap > SLOW_FRAME_MS) {
-          slowStreak++;
-          if (slowStreak >= SLOW_FRAME_LIMIT) { setStatus("heavy"); return; }
-        } else if (gap < SLOW_FRAME_MS / 2) {
-          slowStreak = 0;
-        }
-      }
-      lastTick = now;
-
-      if (now - lastDraw < minFrameGap) return; // fps cap
-      lastDraw = now;
-
-      resize();
-      const c = canvasRef.current!;
-      gl!.viewport(0, 0, c.width, c.height);
-      if (uRes) gl!.uniform2f(uRes, c.width, c.height);
-      if (uTime) gl!.uniform1f(uTime, (now - start) / 1000 + timeOffset);
-      gl!.drawArrays(gl!.TRIANGLES, 0, 3);
-    }
-
-    const ro = new ResizeObserver(() => resize());
-    ro.observe(canvas);
-    resize();
-    raf = requestAnimationFrame(frame);
-
-    return () => {
-      disposed = true;
-      cancelAnimationFrame(raf);
-      ro.disconnect();
+    let droppedGl = false;
+    const dropGl = () => {
+      if (droppedGl) return;
+      droppedGl = true;
       canvas.removeEventListener("webglcontextlost", onLost);
       if (!gl.isContextLost()) {
         gl.deleteProgram(prog);
@@ -214,6 +144,113 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
         gl.deleteShader(fs);
       }
       gl.getExtension("WEBGL_lose_context")?.loseContext();
+    };
+
+    const finishSetup = () => {
+      if (disposed) return;
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        dropGl();
+        setStatus("error");
+        settle(false);
+        return;
+      }
+      gl.useProgram(prog);
+      const uRes = gl.getUniformLocation(prog, "iResolution");
+      const uTime = gl.getUniformLocation(prog, "iTime");
+
+      // ── Audition pass ── one tiny synchronous frame, timed. Shaders that
+      // blow the budget here would stall the GPU at full resolution.
+      canvas.width = PROBE_W;
+      canvas.height = PROBE_H;
+      gl.viewport(0, 0, PROBE_W, PROBE_H);
+      if (uRes) gl.uniform2f(uRes, PROBE_W, PROBE_H);
+      if (uTime) gl.uniform1f(uTime, 0.8 + timeOffset);
+      const probeStart = performance.now();
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.finish();
+      if (performance.now() - probeStart > PROBE_LIMIT_MS) {
+        dropGl();
+        setStatus("heavy");
+        settle(false);
+        return;
+      }
+
+      let lastDraw = 0;
+      let lastTick = 0;
+      let slowStreak = 0;
+      const minFrameGap = 1000 / Math.max(1, fpsCap);
+      const start = performance.now();
+      const dpr = () => Math.min(window.devicePixelRatio || 1, maxDpr);
+
+      function resize() {
+        const c = canvasRef.current;
+        if (!c) return;
+        const w = Math.max(1, Math.round(c.clientWidth * dpr()));
+        const h = Math.max(1, Math.round(c.clientHeight * dpr()));
+        if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+      }
+
+      function frame(now: number) {
+        if (disposed) return;
+        raf = requestAnimationFrame(frame);
+        if (pausedRef.current || document.hidden) { lastTick = now; return; }
+
+        // Watchdog: if rAF gaps stretch while we're actively drawing, the GPU is
+        // being strangled by this shader — stop before the compositor gives up.
+        // Monster gaps are NOT the shader's doing: a GPU-strangling shader
+        // produces a steady drumbeat of ~0.4-1s frames, while a multi-second
+        // gap means the main thread stalled elsewhere (an SSE burst landing,
+        // a heavy re-render, a background tab waking). Don't convict for those.
+        if (lastTick > 0) {
+          const gap = now - lastTick;
+          if (gap > SLOW_FRAME_MS * 7) {
+            slowStreak = 0;
+          } else if (gap > SLOW_FRAME_MS) {
+            slowStreak++;
+            if (slowStreak >= SLOW_FRAME_LIMIT) { setStatus("heavy"); return; }
+          } else if (gap < SLOW_FRAME_MS / 2) {
+            slowStreak = 0;
+          }
+        }
+        lastTick = now;
+
+        if (now - lastDraw < minFrameGap) return; // fps cap
+        lastDraw = now;
+
+        resize();
+        const c = canvasRef.current!;
+        gl!.viewport(0, 0, c.width, c.height);
+        if (uRes) gl!.uniform2f(uRes, c.width, c.height);
+        if (uTime) gl!.uniform1f(uTime, (now - start) / 1000 + timeOffset);
+        gl!.drawArrays(gl!.TRIANGLES, 0, 3);
+      }
+
+      ro = new ResizeObserver(() => resize());
+      ro.observe(canvas);
+      resize();
+      raf = requestAnimationFrame(frame);
+      settle(true);
+    };
+
+    // Prefer async compilation: poll the driver instead of blocking the GPU
+    // process. Falls back to the classic synchronous path where unsupported.
+    const par = gl.getExtension("KHR_parallel_shader_compile");
+    if (par) {
+      const poll = () => {
+        if (disposed) return;
+        if (gl.getProgramParameter(prog, par.COMPLETION_STATUS_KHR)) finishSetup();
+        else raf = requestAnimationFrame(poll);
+      };
+      raf = requestAnimationFrame(poll);
+    } else {
+      finishSetup();
+    }
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      dropGl();
     };
   }, [glsl, visible, generation, status, maxDpr, fpsCap, timeOffset]);
 

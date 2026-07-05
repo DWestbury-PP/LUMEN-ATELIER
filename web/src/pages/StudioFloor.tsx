@@ -114,6 +114,17 @@ function fmtElapsed(since: number): string {
 export default function StudioFloor() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [currentGlsl, setCurrentGlsl] = useState<string | null>(null);
+  // Double-buffered easel: the previous draft keeps animating while the new
+  // one compiles off-screen (async). Swapping only on `onSettled` means a new
+  // iteration never blanks the easel — or the browser — mid-compile.
+  const [easelGlsl, setEaselGlsl] = useState<string | null>(null);
+  const [incomingGlsl, setIncomingGlsl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!currentGlsl || currentGlsl === easelGlsl) { setIncomingGlsl(null); return; }
+    if (!easelGlsl) { setEaselGlsl(currentGlsl); return; }
+    setIncomingGlsl(currentGlsl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentGlsl]);
   const [delta, setDelta] = useState("");
   const [thinking, setThinking] = useState("");
   const [connected, setConnected] = useState(false);
@@ -207,13 +218,28 @@ export default function StudioFloor() {
 
       <div className="floor">
         <div className="stage">
-          <div className="frame">
-            {currentGlsl
-              ? <ShaderCanvas glsl={currentGlsl} maxDpr={1.25} fpsCap={30} />
+          <div className="frame" style={{ position: "relative" }}>
+            {easelGlsl
+              ? <ShaderCanvas glsl={easelGlsl} maxDpr={1.25} fpsCap={30} />
               : <div className="gl-error">no work on the easel yet</div>}
+            {incomingGlsl && incomingGlsl !== easelGlsl && (
+              // Compiles invisibly (opacity keeps it "visible" to the
+              // IntersectionObserver); promoted to the easel only once live.
+              <div style={{ position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" }} aria-hidden="true">
+                <ShaderCanvas
+                  glsl={incomingGlsl}
+                  maxDpr={1.25}
+                  fpsCap={30}
+                  onSettled={(ok) => {
+                    if (ok) setEaselGlsl(incomingGlsl);
+                    setIncomingGlsl(null);
+                  }}
+                />
+              </div>
+            )}
           </div>
           <div className="stage-caption">
-            <span>ON THE EASEL — current working draft, rendered live</span>
+            <span>ON THE EASEL — current working draft, rendered live{incomingGlsl ? " · next draft warming up…" : ""}</span>
             <span>{connected ? "connected" : "reconnecting…"}</span>
           </div>
 
