@@ -398,8 +398,11 @@ button { font-family: inherit; }
   background: rgba(8,8,11,0.85); color: var(--decline);
   border: 1px solid rgba(229,115,115,0.4); cursor: pointer; font-size: 13px;
 }
-.inspo-add {
+/* label.* to outrank the .modal label field styling, which otherwise
+   forces display:block, a 10.5px "+", and a 16px top margin onto the tile */
+label.inspo-add {
   width: 74px; height: 74px;
+  margin: 0; letter-spacing: normal;
   border: 1px dashed var(--gold-soft); color: var(--gold);
   display: flex; align-items: center; justify-content: center;
   font-size: 26px; cursor: pointer; font-weight: 300;
