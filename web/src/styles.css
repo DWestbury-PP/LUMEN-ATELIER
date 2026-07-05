@@ -44,7 +44,7 @@ button { font-family: inherit; }
 
 .masthead {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 28px 0 20px;
@@ -71,7 +71,7 @@ button { font-family: inherit; }
 .nav {
   display: flex;
   gap: 28px;
-  align-items: baseline;
+  align-items: center;
   font-size: 13px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -451,7 +451,6 @@ footer.colophon a { color: var(--ink-dim); border-bottom: 1px solid var(--gold-f
     flex-wrap: wrap;
     row-gap: 12px;
   }
-  .nav { align-items: center; }
   .nav .btn {
     order: 99;
     flex: 1 1 100%;
