@@ -64,7 +64,9 @@ button { font-family: inherit; }
   width: 11px; height: 11px;
   margin-right: 12px;
   background: var(--gold);
-  transform: rotate(45deg) translateY(-1px);
+  /* lift to the caps' optical center; translate must precede rotate
+     or the offset is applied along the rotated (diagonal) axis */
+  transform: translateY(-4px) rotate(45deg);
   box-shadow: 0 0 12px rgba(201, 163, 92, 0.5);
 }
 
@@ -443,6 +445,7 @@ footer.colophon a { color: var(--ink-dim); border-bottom: 1px solid var(--gold-f
     padding: 18px 0 14px;
   }
   .wordmark { font-size: 21px; letter-spacing: 0.12em; }
+  .wordmark .diamond { transform: translateY(-2px) rotate(45deg); }
   .nav {
     width: 100%;
     gap: 14px;
