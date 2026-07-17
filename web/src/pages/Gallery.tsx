@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import ShaderCanvas from "../gl/ShaderCanvas";
+import ShaderTile from "../gl/ShaderTile";
 import { api } from "../lib/api";
 import type { Piece, StudioStatus } from "../lib/types";
 
@@ -66,7 +66,7 @@ export default function Gallery({ onCommission }: { onCommission: () => void }) 
           {pieces.map((p) => (
             <Link to={`/piece/${p.id}`} className="card" key={p.id}>
               <div className="frame">
-                {p.glsl && <ShaderCanvas glsl={p.glsl} maxDpr={1} />}
+                {p.glsl && <ShaderTile glsl={p.glsl} />}
               </div>
               <div className="meta">
                 <span className="title">{p.title ?? "Untitled"}</span>
