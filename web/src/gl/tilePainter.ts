@@ -16,13 +16,35 @@
 //  - if the shared context dies, the shader on the easel at that moment is
 //    blamed; two kills and it's retired. Everyone else recompiles quietly
 //    behind their frozen frames.
+//
+// THE GOVERNOR. On WebKit (every iPad/iPhone browser, whatever its logo)
+// the bitmap hand-off is a real copy, not Chrome's near-free GPU-side
+// transfer, and older GPUs can't run a whole wall at 30fps — push anyway
+// and WebKit kills the tab's GPU process: the page goes black. So the
+// painter measures its own per-tick cost and steps down a quality ladder:
+// lower fps, lower render scale, and fewer tiles animating (nearest the
+// viewport center first). Every visible tile still gets ONE real frame and
+// holds it as a still — degraded is a quieter wall, never a blank one.
+// Sustained calm slowly climbs back up.
 
 const VS =
   "#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}";
 
 const MAX_CONCURRENT_COMPILES = 2;
-const FPS_CAP = 30;
-const MIN_FRAME_GAP = 1000 / FPS_CAP;
+
+// Quality ladder. `animate` caps how many tiles run live (rest hold stills).
+const LEVELS = [
+  { fps: 30, scale: 1, animate: Infinity },
+  { fps: 24, scale: 0.75, animate: 8 },
+  { fps: 15, scale: 0.6, animate: 4 },
+  { fps: 10, scale: 0.5, animate: 2 },
+] as const;
+// Main-thread ms per tick (EMA) that triggers a step down; calm below
+// RELAX_MS for RELAX_AFTER_MS earns a step back up.
+const BUSY_STEP_MS = 8;
+const RELAX_MS = 3;
+const RELAX_AFTER_MS = 25_000;
+const RANK_INTERVAL_MS = 400;
 
 // Audition: one tiny timed frame before a shader is allowed on the wall.
 const PROBE_W = 96;
@@ -32,6 +54,10 @@ const PROBE_LIMIT_MS = 150;
 // Spot-check: every couple of seconds, time one visible tile's full draw.
 const POLICE_INTERVAL_MS = 2000;
 const POLICE_LIMIT_MS = 120;
+
+// Without KHR_parallel_shader_compile every compile stalls the main thread,
+// so take them one at a time with breathing room between.
+const SYNC_COMPILE_GAP_MS = 300;
 
 const MAX_KILLS = 2;
 
@@ -44,7 +70,6 @@ interface ProgramEntry {
   uRes: WebGLUniformLocation | null;
   uTime: WebGLUniformLocation | null;
   status: TileStatus;
-  queued: boolean; // still waiting for a compile slot
 }
 
 interface Tile {
@@ -56,6 +81,10 @@ interface Tile {
   timeOffset: number;
   lastStatus: TileStatus | null;
   onStatus: (s: TileStatus) => void;
+  /** Nearness order to viewport center; only the top `animate` keep moving. */
+  rank: number;
+  /** Has at least one real frame on its canvas (may be frozen). */
+  hasFrame: boolean;
 }
 
 export interface TileHandle {
@@ -86,6 +115,11 @@ class TilePainter {
   private lastDrawnKey: string | null = null;
   private kills = new Map<string, number>();
   private retired = new Set<string>(); // killed the context too often
+  private level = 0;
+  private busyEma = 0;
+  private calmSince = 0;
+  private lastRank = 0;
+  private lastCompileDone = 0;
 
   register(el: HTMLCanvasElement, glsl: string, onStatus: (s: TileStatus) => void): TileHandle | null {
     const out = el.getContext("bitmaprenderer");
@@ -98,6 +132,8 @@ class TilePainter {
       timeOffset: Math.random() * 90,
       lastStatus: null,
       onStatus,
+      rank: Infinity,
+      hasFrame: false,
     };
     this.tiles.add(tile);
     this.start();
@@ -137,6 +173,8 @@ class TilePainter {
       this.off = null;
       this.entries.clear();
       this.compiling.clear();
+      // A dead context is also the loudest overload signal there is.
+      if (this.level < LEVELS.length - 1) this.level++;
       this.rebuilding = true;
       setTimeout(() => { this.rebuilding = false; this.start(); }, 1500);
       return null;
@@ -165,16 +203,27 @@ class TilePainter {
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
-    e = { prog, vs, fs, uRes: null, uTime: null, status: "compiling", queued: false };
+    e = { prog, vs, fs, uRes: null, uTime: null, status: "compiling" };
     this.entries.set(glsl, e);
     this.compiling.add(glsl);
     return e;
   }
 
+  /** May this tile start a compile right now? Async drivers take a pair at a
+   *  time; sync drivers take exactly one, spaced out, and only for tiles
+   *  close enough to matter at the current quality level. */
+  private mayCompile(tile: Tile, now: number): boolean {
+    if (this.parExt) return this.compiling.size < MAX_CONCURRENT_COMPILES;
+    if (this.compiling.size > 0) return false;
+    if (now - this.lastCompileDone < SYNC_COMPILE_GAP_MS) return false;
+    const cap = LEVELS[this.level].animate;
+    return tile.rank < (Number.isFinite(cap) ? (cap as number) + 2 : Infinity);
+  }
+
   // Never query link status before the driver says compilation is complete —
   // that forces a synchronous GL→native translation that can stall the
   // browser's whole GPU process on big machine-written shaders.
-  private pumpCompiles(gl: WebGL2RenderingContext) {
+  private pumpCompiles(gl: WebGL2RenderingContext, now: number) {
     for (const key of [...this.compiling]) {
       const e = this.entries.get(key)!;
       const done = this.parExt
@@ -183,6 +232,7 @@ class TilePainter {
       if (!done) continue;
       this.compiling.delete(key);
       this.finalize(gl, key, e);
+      this.lastCompileDone = now;
     }
   }
 
@@ -206,29 +256,67 @@ class TilePainter {
     e.status = performance.now() - t0 > PROBE_LIMIT_MS ? "heavy" : "ready";
   }
 
+  /** Order visible tiles by distance to viewport center; the closest keep
+   *  animating when the governor tightens. Reads layout, so throttled. */
+  private rankTiles(now: number) {
+    if (now - this.lastRank < RANK_INTERVAL_MS) return;
+    this.lastRank = now;
+    const mid = window.innerHeight / 2;
+    const near: { tile: Tile; d: number }[] = [];
+    for (const tile of this.tiles) {
+      if (!tile.visible) { tile.rank = Infinity; continue; }
+      const r = tile.el.getBoundingClientRect();
+      if (r.width === 0) { tile.rank = Infinity; continue; }
+      near.push({ tile, d: Math.abs((r.top + r.bottom) / 2 - mid) });
+    }
+    near.sort((a, b) => a.d - b.d);
+    near.forEach((x, i) => { x.tile.rank = i; });
+  }
+
+  private govern(busy: number, now: number) {
+    this.busyEma = this.busyEma * 0.9 + busy * 0.1;
+    if (this.busyEma > BUSY_STEP_MS && this.level < LEVELS.length - 1) {
+      this.level++;
+      this.busyEma = 0;
+      this.calmSince = now;
+    } else if (this.busyEma > RELAX_MS) {
+      this.calmSince = now;
+    } else if (this.level > 0 && now - this.calmSince > RELAX_AFTER_MS) {
+      this.level--;
+      this.calmSince = now;
+    }
+  }
+
   private tick = (now: number) => {
     this.raf = 0;
     if (this.tiles.size === 0) return;
     this.raf = requestAnimationFrame(this.tick);
     if (document.hidden) return;
 
+    const t0 = performance.now();
     const gl = this.ensureGl();
     if (!gl) return;
     const off = this.off!;
+    const q = LEVELS[this.level];
+    const minFrameGap = 1000 / q.fps;
 
-    // Start compiles for shaders whose tiles are near the viewport,
-    // at most MAX_CONCURRENT_COMPILES in flight.
+    this.rankTiles(now);
+
+    // Start compiles for shaders whose tiles are near the viewport.
     for (const tile of this.tiles) {
       if (!tile.visible) continue;
       if (this.retired.has(tile.glsl)) continue;
-      if (!this.entries.has(tile.glsl) && this.compiling.size < MAX_CONCURRENT_COMPILES) {
+      if (!this.entries.has(tile.glsl) && this.mayCompile(tile, now)) {
         this.entryFor(gl, tile.glsl);
       }
     }
-    this.pumpCompiles(gl);
+    this.pumpCompiles(gl, now);
 
     const police = now - this.lastPolice > POLICE_INTERVAL_MS;
     let policed = false;
+    // Under pressure, at most one first-paint per tick — a freshly scrolled-to
+    // row fills in over a few frames instead of stalling one.
+    let firstPaints = 0;
 
     for (const tile of this.tiles) {
       // Keep each tile's overlay honest even while it's off-screen.
@@ -240,13 +328,18 @@ class TilePainter {
         tile.onStatus(status);
       }
       if (!tile.visible || status !== "ready") continue;
-      if (now - tile.lastDraw < MIN_FRAME_GAP) continue;
+      if (now - tile.lastDraw < minFrameGap) continue;
+      if (tile.hasFrame) {
+        if (tile.rank >= q.animate) continue; // holds its still
+      } else if (this.level > 0 && firstPaints >= 1) {
+        continue;
+      }
 
       const e = this.entries.get(tile.glsl)!;
       const dpr = Math.min(window.devicePixelRatio || 1, 1);
-      const w = Math.max(1, Math.round(tile.el.clientWidth * dpr));
-      const h = Math.max(1, Math.round(tile.el.clientHeight * dpr));
       if (tile.el.clientWidth === 0) continue; // not laid out yet
+      const w = Math.max(1, Math.round(tile.el.clientWidth * dpr * q.scale));
+      const h = Math.max(1, Math.round(tile.el.clientHeight * dpr * q.scale));
       if (off.width !== w) off.width = w;
       if (off.height !== h) off.height = h;
 
@@ -255,7 +348,7 @@ class TilePainter {
       if (e.uRes) gl.uniform2f(e.uRes, w, h);
       if (e.uTime) gl.uniform1f(e.uTime, now / 1000 + tile.timeOffset);
       this.lastDrawnKey = tile.glsl;
-      const t0 = performance.now();
+      const t1 = performance.now();
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       // Spot-check the first tile drawn this frame: measure ITS cost with a
       // sync finish. Convictions here are individual, not ambient.
@@ -263,15 +356,18 @@ class TilePainter {
         policed = true;
         this.lastPolice = now;
         gl.finish();
-        if (performance.now() - t0 > POLICE_LIMIT_MS) {
+        if (performance.now() - t1 > POLICE_LIMIT_MS) {
           e.status = "heavy";
           continue;
         }
       }
       if (gl.isContextLost()) return; // blame lands next tick
       tile.lastDraw = now;
+      if (!tile.hasFrame) { tile.hasFrame = true; firstPaints++; }
       tile.out.transferFromImageBitmap(off.transferToImageBitmap());
     }
+
+    this.govern(performance.now() - t0, now);
   };
 }
 
