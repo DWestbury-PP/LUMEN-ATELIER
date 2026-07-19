@@ -1,11 +1,20 @@
 // The gallery's shared painter: ONE WebGL context renders every tile.
 //
 // Per-tile contexts don't survive a large collection — browsers cap live
-// WebGL contexts (~16), and scrolling churns through create/compile/destroy
-// on every pass, which janks the main thread and gets innocent shaders
-// convicted as "heavy." Instead, a single hidden OffscreenCanvas draws each
-// visible tile's frame and hands the pixels to the tile's <canvas> through
-// an ImageBitmapRenderingContext (which doesn't count against the WebGL cap).
+// WebGL contexts (WebKit even counts dead-but-uncollected ones), and
+// scrolling churns through create/compile/destroy on every pass, which
+// janks the main thread and gets innocent shaders convicted as "heavy."
+// Instead, a single hidden canvas draws each visible tile's frame and the
+// pixels are handed to the tile's own <canvas>, which never holds a WebGL
+// context of its own.
+//
+// Two backends, chosen by capability:
+//  - "bitmap": OffscreenCanvas + transferToImageBitmap into the tile's
+//    ImageBitmapRenderingContext. Near-free GPU-side transfer on Chrome.
+//  - "blit": a hidden regular <canvas> + 2D drawImage into the tile.
+//    For WebKits whose OffscreenCanvas can't host WebGL (Safari < 17) —
+//    a copy, but ONE context total, so WebKit's context cap and its
+//    eviction storms simply cannot occur.
 //
 //  - each shader compiles ONCE per session, async where the driver allows,
 //    at most two in flight so a scroll burst can't stampede the GPU
@@ -17,15 +26,14 @@
 //    blamed; two kills and it's retired. Everyone else recompiles quietly
 //    behind their frozen frames.
 //
-// THE GOVERNOR. On WebKit (every iPad/iPhone browser, whatever its logo)
-// the bitmap hand-off is a real copy, not Chrome's near-free GPU-side
-// transfer, and older GPUs can't run a whole wall at 30fps — push anyway
-// and WebKit kills the tab's GPU process: the page goes black. So the
-// painter measures its own per-tick cost and steps down a quality ladder:
-// lower fps, lower render scale, and fewer tiles animating (nearest the
-// viewport center first). Every visible tile still gets ONE real frame and
-// holds it as a still — degraded is a quieter wall, never a blank one.
-// Sustained calm slowly climbs back up.
+// THE GOVERNOR. On WebKit the frame hand-off is a real copy, and older
+// GPUs can't run a whole wall at 30fps — push anyway and WebKit kills the
+// tab's GPU process: the page goes black. So the painter measures its own
+// per-tick cost and steps down a quality ladder: lower fps, lower render
+// scale, and fewer tiles animating (nearest the viewport center first).
+// Every visible tile still gets ONE real frame and holds it as a still —
+// degraded is a quieter wall, never a blank one. Sustained calm slowly
+// climbs back up.
 
 const VS =
   "#version 300 es\nvoid main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}";
@@ -62,6 +70,7 @@ const SYNC_COMPILE_GAP_MS = 300;
 const MAX_KILLS = 2;
 
 export type TileStatus = "compiling" | "ready" | "error" | "heavy" | "unsupported";
+export type PainterMode = "bitmap" | "blit";
 
 interface ProgramEntry {
   prog: WebGLProgram;
@@ -75,7 +84,7 @@ interface ProgramEntry {
 interface Tile {
   glsl: string;
   el: HTMLCanvasElement;
-  out: ImageBitmapRenderingContext;
+  out: ImageBitmapRenderingContext | CanvasRenderingContext2D;
   visible: boolean;
   lastDraw: number;
   timeOffset: number;
@@ -93,24 +102,37 @@ export interface TileHandle {
   dispose(): void;
 }
 
-export function tilePainterSupported(): boolean {
+function detectMode(): PainterMode | null {
   // OffscreenCanvas existing is NOT enough — WebKit shipped it long before
   // it could host a WebGL context (Safari 17), and a null context would
-  // strand every tile black. Probe the real capability.
-  if (typeof OffscreenCanvas === "undefined") return false;
+  // strand every tile black. Probe what it can actually DO.
   try {
-    if (!document.createElement("canvas").getContext("bitmaprenderer")) return false;
-    const gl = new OffscreenCanvas(4, 4).getContext("webgl2");
-    if (!gl) return false;
-    gl.getExtension("WEBGL_lose_context")?.loseContext();
-    return true;
-  } catch {
-    return false;
-  }
+    if (typeof OffscreenCanvas !== "undefined" && document.createElement("canvas").getContext("bitmaprenderer")) {
+      const gl = new OffscreenCanvas(4, 4).getContext("webgl2");
+      if (gl) {
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+        return "bitmap";
+      }
+    }
+  } catch { /* fall through to blit probe */ }
+  try {
+    const gl = document.createElement("canvas").getContext("webgl2");
+    if (gl) {
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+      return "blit";
+    }
+  } catch { /* no webgl2 at all */ }
+  return null;
+}
+
+const MODE: PainterMode | null = typeof document !== "undefined" ? detectMode() : null;
+
+export function tilePainterSupported(): boolean {
+  return MODE !== null;
 }
 
 class TilePainter {
-  private off: OffscreenCanvas | null = null;
+  private surface: OffscreenCanvas | HTMLCanvasElement | null = null;
   private gl: WebGL2RenderingContext | null = null;
   private parExt: { COMPLETION_STATUS_KHR: number } | null = null;
   private entries = new Map<string, ProgramEntry>();
@@ -132,8 +154,8 @@ class TilePainter {
   private dead = false;
 
   register(el: HTMLCanvasElement, glsl: string, onStatus: (s: TileStatus) => void): TileHandle | null {
-    if (this.dead) return null;
-    const out = el.getContext("bitmaprenderer");
+    if (this.dead || MODE === null) return null;
+    const out = MODE === "bitmap" ? el.getContext("bitmaprenderer") : el.getContext("2d");
     if (!out) return null;
     const tile: Tile = {
       glsl, el, out,
@@ -181,7 +203,7 @@ class TilePainter {
         if (n >= MAX_KILLS) this.retired.add(culprit);
       }
       this.gl = null;
-      this.off = null;
+      this.surface = null;
       this.entries.clear();
       this.compiling.clear();
       // A dead context is also the loudest overload signal there is.
@@ -190,15 +212,21 @@ class TilePainter {
       setTimeout(() => { this.rebuilding = false; this.start(); }, 1500);
       return null;
     }
-    this.off = new OffscreenCanvas(PROBE_W, PROBE_H);
-    const gl = this.off.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "low-power" });
+    const surface = MODE === "bitmap"
+      ? new OffscreenCanvas(PROBE_W, PROBE_H)
+      : document.createElement("canvas");
+    if (surface instanceof HTMLCanvasElement) {
+      surface.width = PROBE_W;
+      surface.height = PROBE_H;
+    }
+    const gl = surface.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "low-power" }) as WebGL2RenderingContext | null;
     if (!gl) {
       this.dead = true;
-      this.off = null;
       return null;
     }
-    this.off.addEventListener("webglcontextlost", (e) => e.preventDefault());
+    surface.addEventListener("webglcontextlost", (e: Event) => e.preventDefault());
     this.parExt = gl.getExtension("KHR_parallel_shader_compile");
+    this.surface = surface;
     this.gl = gl;
     return gl;
   }
@@ -302,6 +330,23 @@ class TilePainter {
     }
   }
 
+  /** Hand the surface's freshly drawn frame to the tile. */
+  private deliver(tile: Tile, w: number, h: number) {
+    if (MODE === "bitmap") {
+      (tile.out as ImageBitmapRenderingContext).transferFromImageBitmap(
+        (this.surface as OffscreenCanvas).transferToImageBitmap()
+      );
+    } else {
+      // Same-task drawImage of a WebGL canvas is guaranteed to see the
+      // frame even without preserveDrawingBuffer.
+      if (tile.el.width !== w) tile.el.width = w;
+      if (tile.el.height !== h) tile.el.height = h;
+      (tile.out as CanvasRenderingContext2D).drawImage(
+        this.surface as HTMLCanvasElement, 0, 0, w, h, 0, 0, w, h
+      );
+    }
+  }
+
   private tick = (now: number) => {
     this.raf = 0;
     if (this.tiles.size === 0) return;
@@ -322,7 +367,7 @@ class TilePainter {
     // If this trips `dead`, the already-queued next tick broadcasts it.
     const gl = this.ensureGl();
     if (!gl) return;
-    const off = this.off!;
+    const surface = this.surface!;
     const q = LEVELS[this.level];
     const minFrameGap = 1000 / q.fps;
 
@@ -366,8 +411,8 @@ class TilePainter {
       if (tile.el.clientWidth === 0) continue; // not laid out yet
       const w = Math.max(1, Math.round(tile.el.clientWidth * dpr * q.scale));
       const h = Math.max(1, Math.round(tile.el.clientHeight * dpr * q.scale));
-      if (off.width !== w) off.width = w;
-      if (off.height !== h) off.height = h;
+      if (surface.width !== w) surface.width = w;
+      if (surface.height !== h) surface.height = h;
 
       gl.useProgram(e.prog);
       gl.viewport(0, 0, w, h);
@@ -390,7 +435,7 @@ class TilePainter {
       if (gl.isContextLost()) return; // blame lands next tick
       tile.lastDraw = now;
       if (!tile.hasFrame) { tile.hasFrame = true; firstPaints++; }
-      tile.out.transferFromImageBitmap(off.transferToImageBitmap());
+      this.deliver(tile, w, h);
     }
 
     this.govern(performance.now() - t0, now);
