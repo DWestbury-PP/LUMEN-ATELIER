@@ -61,7 +61,7 @@ const SYNC_COMPILE_GAP_MS = 300;
 
 const MAX_KILLS = 2;
 
-export type TileStatus = "compiling" | "ready" | "error" | "heavy";
+export type TileStatus = "compiling" | "ready" | "error" | "heavy" | "unsupported";
 
 interface ProgramEntry {
   prog: WebGLProgram;
@@ -94,9 +94,16 @@ export interface TileHandle {
 }
 
 export function tilePainterSupported(): boolean {
+  // OffscreenCanvas existing is NOT enough — WebKit shipped it long before
+  // it could host a WebGL context (Safari 17), and a null context would
+  // strand every tile black. Probe the real capability.
   if (typeof OffscreenCanvas === "undefined") return false;
   try {
-    return !!document.createElement("canvas").getContext("bitmaprenderer");
+    if (!document.createElement("canvas").getContext("bitmaprenderer")) return false;
+    const gl = new OffscreenCanvas(4, 4).getContext("webgl2");
+    if (!gl) return false;
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    return true;
   } catch {
     return false;
   }
@@ -120,8 +127,12 @@ class TilePainter {
   private calmSince = 0;
   private lastRank = 0;
   private lastCompileDone = 0;
+  /** Context creation failed outright — this browser can't run the painter.
+   *  Tiles are told "unsupported" so they can fall back to per-tile canvases. */
+  private dead = false;
 
   register(el: HTMLCanvasElement, glsl: string, onStatus: (s: TileStatus) => void): TileHandle | null {
+    if (this.dead) return null;
     const out = el.getContext("bitmaprenderer");
     if (!out) return null;
     const tile: Tile = {
@@ -181,7 +192,11 @@ class TilePainter {
     }
     this.off = new OffscreenCanvas(PROBE_W, PROBE_H);
     const gl = this.off.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "low-power" });
-    if (!gl) return null;
+    if (!gl) {
+      this.dead = true;
+      this.off = null;
+      return null;
+    }
     this.off.addEventListener("webglcontextlost", (e) => e.preventDefault());
     this.parExt = gl.getExtension("KHR_parallel_shader_compile");
     this.gl = gl;
@@ -290,10 +305,21 @@ class TilePainter {
   private tick = (now: number) => {
     this.raf = 0;
     if (this.tiles.size === 0) return;
+    if (this.dead) {
+      // No context, ever. Hand every tile to its fallback and stop ticking.
+      for (const tile of this.tiles) {
+        if (tile.lastStatus !== "unsupported") {
+          tile.lastStatus = "unsupported";
+          tile.onStatus("unsupported");
+        }
+      }
+      return;
+    }
     this.raf = requestAnimationFrame(this.tick);
     if (document.hidden) return;
 
     const t0 = performance.now();
+    // If this trips `dead`, the already-queued next tick broadcasts it.
     const gl = this.ensureGl();
     if (!gl) return;
     const off = this.off!;

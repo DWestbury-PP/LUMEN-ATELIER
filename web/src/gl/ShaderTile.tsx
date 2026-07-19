@@ -2,8 +2,10 @@
 // holds only an ImageBitmapRenderingContext — the shared painter draws the
 // frame and transfers the pixels in. A tile that scrolls out of range simply
 // stops receiving frames and keeps its last one frozen, so scrolling back
-// never pops. Browsers without OffscreenCanvas get the classic per-tile
-// ShaderCanvas instead.
+// never pops. Browsers that can't host the painter — no OffscreenCanvas, or
+// a WebKit whose OffscreenCanvas can't do WebGL — get the classic per-tile
+// ShaderCanvas instead, decided up front by the capability probe and again
+// at runtime if context creation fails anyway.
 
 import { useEffect, useRef, useState } from "react";
 import ShaderCanvas from "./ShaderCanvas";
@@ -32,7 +34,10 @@ function PaintedTile({ glsl }: { glsl: string }) {
     if (!wrap || !canvas) return;
     const handle = tilePainter.register(canvas, glsl, setStatus);
     handleRef.current = handle;
-    if (!handle) return;
+    if (!handle) {
+      setStatus("unsupported");
+      return;
+    }
     const io = new IntersectionObserver(
       ([entry]) => handle.setVisible(entry.isIntersecting),
       { rootMargin: WARM_MARGIN }
@@ -44,6 +49,8 @@ function PaintedTile({ glsl }: { glsl: string }) {
       handleRef.current = null;
     };
   }, [glsl]);
+
+  if (status === "unsupported") return <ShaderCanvas glsl={glsl} maxDpr={1} />;
 
   return (
     <div ref={wrapRef} className="glwrap">
