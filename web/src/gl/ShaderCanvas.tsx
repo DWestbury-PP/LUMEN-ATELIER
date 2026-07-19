@@ -35,6 +35,23 @@ const PROBE_LIMIT_MS = 150;
 // rendering (auto-respawning a lethal shader re-kills the GPU in a loop).
 const MAX_CONTEXT_LOSSES = 2;
 
+// Hard budget of concurrent live contexts, page-wide. WebKit's cap is far
+// lower than Chrome's, and letting the browser evict "the oldest context"
+// during a scroll counts as a loss against whatever innocent shader owned
+// it — two evictions and it's wrongly retired. Stay under every cap and
+// queue the rest; a waiting tile takes the next freed slot.
+const MAX_LIVE_CONTEXTS = 6;
+let liveContexts = 0;
+const contextWaiters = new Set<() => void>();
+function releaseContextSlot() {
+  liveContexts--;
+  const next = contextWaiters.values().next();
+  if (!next.done) {
+    contextWaiters.delete(next.value);
+    next.value();
+  }
+}
+
 interface Props {
   glsl: string;
   /** Device-pixel-ratio cap; keep low for grid thumbnails, higher for hero views. */
@@ -96,8 +113,22 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
       onSettledRef.current?.(ok);
     };
 
+    // Wait for a context slot rather than blowing the browser's cap.
+    if (liveContexts >= MAX_LIVE_CONTEXTS) {
+      const wake = () => setGeneration((g) => g + 1);
+      contextWaiters.add(wake);
+      return () => { contextWaiters.delete(wake); };
+    }
+    liveContexts++;
+    let slotHeld = true;
+    const releaseOnce = () => {
+      if (!slotHeld) return;
+      slotHeld = false;
+      releaseContextSlot();
+    };
+
     const gl = canvas.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "low-power" });
-    if (!gl) { setStatus("error"); settle(false); return; }
+    if (!gl) { releaseOnce(); setStatus("error"); settle(false); return; }
 
     const onLost = (e: Event) => {
       e.preventDefault();
@@ -142,8 +173,8 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
         gl.deleteProgram(prog);
         gl.deleteShader(vs);
         gl.deleteShader(fs);
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
       }
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
 
     const finishSetup = () => {
@@ -251,6 +282,7 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
       cancelAnimationFrame(raf);
       ro?.disconnect();
       dropGl();
+      releaseOnce();
     };
   }, [glsl, visible, generation, status, maxDpr, fpsCap, timeOffset]);
 
