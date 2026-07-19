@@ -52,6 +52,16 @@ function releaseContextSlot() {
   }
 }
 
+// Losses that arrive in a cluster are systemic — the browser shedding
+// contexts under pressure (it counts not-yet-collected dead ones too) —
+// and prove nothing about any one shader. Only a lone loss is a strike.
+let lastContextLossAt = 0;
+const LOSS_CLUSTER_MS = 1500;
+
+// Only tiles that stay in view this long get a context; flicking past a
+// row of pieces shouldn't create (and then orphan) a context per tile.
+const VISIBLE_DEBOUNCE_MS = 250;
+
 interface Props {
   glsl: string;
   /** Device-pixel-ratio cap; keep low for grid thumbnails, higher for hero views. */
@@ -85,12 +95,20 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
+    let timer = 0;
     const io = new IntersectionObserver(
-      ([entry]) => setVisible(entry.isIntersecting),
+      ([entry]) => {
+        clearTimeout(timer);
+        if (entry.isIntersecting) {
+          timer = window.setTimeout(() => setVisible(true), VISIBLE_DEBOUNCE_MS);
+        } else {
+          setVisible(false);
+        }
+      },
       { rootMargin: "120px" }
     );
     io.observe(el);
-    return () => io.disconnect();
+    return () => { clearTimeout(timer); io.disconnect(); };
   }, []);
 
   // New shader source: clear any previous error/heavy verdict.
@@ -133,6 +151,14 @@ export default function ShaderCanvas({ glsl, maxDpr = 1, fpsCap = 30, paused = f
     const onLost = (e: Event) => {
       e.preventDefault();
       if (disposed) return;
+      const now = performance.now();
+      const clustered = now - lastContextLossAt < LOSS_CLUSTER_MS;
+      lastContextLossAt = now;
+      if (clustered) {
+        // Eviction storm, not this shader's crime: respawn, no strike.
+        setTimeout(() => setGeneration((g) => g + 1), 1500);
+        return;
+      }
       lossCount.current += 1;
       if (lossCount.current >= MAX_CONTEXT_LOSSES) {
         // This shader keeps taking the GPU down — retire it. A human can
