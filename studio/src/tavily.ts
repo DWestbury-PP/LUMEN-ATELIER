@@ -41,11 +41,17 @@ export interface Research {
   notes: string[];
 }
 
-export async function maybeResearch(theme: string | null): Promise<Research | null> {
+/**
+ * @param avoid subjects the studio researched recently — a pure random pick
+ *   handed the Muse the same source three times in five pieces.
+ */
+export async function maybeResearch(theme: string | null, avoid: string[] = []): Promise<Research | null> {
   if (!config.tavilyApiKey) return null;
+  const fresh = MOVEMENTS.filter((m) => !avoid.includes(m));
+  const pool = fresh.length > 0 ? fresh : MOVEMENTS;
   const subject = theme
     ? `${theme} — visual art references`
-    : MOVEMENTS[Math.floor(Math.random() * MOVEMENTS.length)];
+    : pool[Math.floor(Math.random() * pool.length)];
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",

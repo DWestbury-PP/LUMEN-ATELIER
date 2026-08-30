@@ -532,6 +532,15 @@ export const q = {
     return r.rows[0].t ? new Date(r.rows[0].t) : null;
   },
 
+  /** Subjects the research wing pulled for the last N briefs, newest first. */
+  async recentResearchSubjects(limit = 10): Promise<string[]> {
+    const r = await pool.query(
+      "select payload->>'subject' as subject from events where type = 'muse.research' order by id desc limit $1",
+      [limit]
+    );
+    return r.rows.map((row: { subject: string | null }) => row.subject).filter((s): s is string => !!s);
+  },
+
   async recentEvents(limit = 200): Promise<unknown[]> {
     const r = await pool.query(
       "select id, piece_id, type, payload, created_at from events order by id desc limit $1",

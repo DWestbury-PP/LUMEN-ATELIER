@@ -55,7 +55,8 @@ async function composePiece(piece: PieceRow): Promise<void> {
     if (curatorNote) emitStudio("curator.direction", id, { note: curatorNote });
   } else {
     setPhase("brief");
-    const research = await maybeResearch(piece.theme);
+    const recentSubjects = await q.recentResearchSubjects(10).catch(() => []);
+    const research = await maybeResearch(piece.theme, recentSubjects);
     if (research) emitStudio("muse.research", id, { subject: research.subject });
     const recentWork = await q.recentApprovedSummaries(12).catch(() => []);
     const inspiration = (piece as PieceRow & { inspiration?: string[] | null }).inspiration ?? null;
