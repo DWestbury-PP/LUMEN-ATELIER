@@ -47,7 +47,12 @@ The models are configurable via environment; recast the ensemble however you lik
 
 ## What's in the gallery
 
-- **The Collection** — approved pieces, rendered live in WebGL2.
+- **The Collection** — approved pieces. Each hangs as a *poster* (a still rendered
+  by the studio's own headless eye) and comes to life as a live WebGL2 shader only
+  while it holds your attention — the few tiles nearest the viewport centre, plus
+  the one under your pointer. A wall of 180 live shaders bogged visitors' machines;
+  a wall of posters costs nothing. A **finder** above the wall searches titles,
+  statements and tags, and filters by tag (`/?tag=meditative` is a shareable link).
 - **Piece pages** — title, artist statement, the Muse's brief, and the full creative
   process: every draft viewable *live* (including rejected ones), with the Critic's
   scores and notes.
@@ -150,8 +155,30 @@ out vec4 fragColor;
 No textures, no buffers, no assets. Pure math. The same source compiles in the
 headless renderer (for the Critic) and in every visitor's browser (for the gallery).
 Because visitors execute unvetted, machine-written shaders, the gallery's WebGL layer
-is hardened: per-canvas frame-time watchdogs, automatic context-loss recovery, and
-visibility-gated context creation.
+is hardened. One shared context paints every tile (`web/src/gl/tilePainter.ts` — an
+OffscreenCanvas backend on Chrome, a blit backend on older WebKit, per-tile canvases
+only where WebGL2 is missing from OffscreenCanvas entirely); shaders compile once per
+session and pass an audition before they're allowed on the wall; a governor steps
+frame rate, resolution and the number of animating tiles down under measured load;
+and the attention set (`web/src/gl/attention.ts`) caps how many tiles are live at all.
+`tools/webkit-scroll-test.js` walks the gallery on Safari's engine in Docker — run it
+before touching the rendering path; it has caught real bugs.
+
+## Working on this repo
+
+- **Branch → PR → merge to `main`.** A merge is a production deploy: Railway rebuilds
+  both services from `main`. Before merging, check `GET /api/status` reports
+  `phase: "idle"` — a deploy restarts the studio mid-composition otherwise.
+- **Verify in Docker.** The Mac that runs this has no host Node; typecheck and build
+  with `docker run --rm -v "$PWD/web":/app -w /app node:22-bookworm-slim sh -c
+  "npm install && npx tsc --noEmit && npx vite build"` (same for `studio/`).
+  There are no lockfiles, so production bundle hashes differ from local ones —
+  verify a deploy by its content, not its filename.
+- **Models** default in `studio/src/config.ts` (`MUSE_MODEL`, `ARTISAN_MODEL`,
+  `CRITIC_MODEL` override). Prices for the cost ledger live in `studio/src/agents.ts`.
+- **Backfills run at boot** while the studio is idle: posters for approved pieces
+  without one (`studio/src/posters.ts`), tags for pieces without any
+  (`studio/src/tagging.ts`, a cheap Haiku pass). Both are idempotent.
 
 ## Credits
 
