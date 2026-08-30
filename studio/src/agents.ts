@@ -104,6 +104,30 @@ function parseJson<T>(raw: string, label: string): T {
   }
 }
 
+// The text of a structured-output reply, or a diagnosis of why there isn't
+// one. Claude 5 models think adaptively even when `thinking` is omitted, and
+// `max_tokens` caps thinking + answer together — a tight budget yields a
+// reply that is all thinking and no JSON (or JSON cut off mid-sentence).
+// Naming the stop reason and block types turns "unparseable JSON: " into
+// something the floor log can actually explain.
+function textOrThrow(msg: Anthropic.Message, label: string): string {
+  const blocks = msg.content.map((b) => b.type).join("+") || "none";
+  if (msg.stop_reason === "refusal") {
+    throw new Error(`${label} declined the request (stop_reason=refusal)`);
+  }
+  const text = textOf(msg);
+  if (msg.stop_reason === "max_tokens") {
+    throw new Error(
+      `${label} ran out of output budget (stop_reason=max_tokens, output_tokens=${msg.usage.output_tokens}, blocks=${blocks})` +
+      (text ? `: ${text.slice(0, 160)}…` : "")
+    );
+  }
+  if (!text) {
+    throw new Error(`${label} returned no text (stop_reason=${msg.stop_reason}, blocks=${blocks})`);
+  }
+  return text;
+}
+
 function schemaFormat(schema: Record<string, unknown>) {
   return { format: { type: "json_schema" as const, schema } };
 }
@@ -174,7 +198,7 @@ export async function tagPiece(p: { title: string | null; statement: string | nu
     messages: [{ role: "user", content: text }],
   });
   record("claude-haiku-4-5", msg.usage);
-  return cleanTags(parseJson<{ tags: string[] }>(textOf(msg), "Tagger").tags);
+  return cleanTags(parseJson<{ tags: string[] }>(textOrThrow(msg, "Tagger"), "Tagger").tags);
 }
 
 export interface RecentWork {
@@ -225,15 +249,19 @@ export async function muse(
   }
   content.push({ type: "text", text: parts.join("\n\n") });
 
+  // A brief is ~600 tokens of JSON; the rest of the budget is headroom for
+  // adaptive thinking, which shares max_tokens. (2000 was enough for Haiku
+  // 4.5 with thinking off; on Sonnet 5 it truncated briefs mid-sentence.)
   const msg = await client.messages.create({
     model: config.models.muse,
-    max_tokens: 2000,
+    max_tokens: 8000,
+    thinking: { type: "adaptive" },
     system: MUSE_SYSTEM,
-    output_config: schemaFormat(MUSE_SCHEMA),
+    output_config: { ...schemaFormat(MUSE_SCHEMA), effort: "medium" },
     messages: [{ role: "user", content }],
   });
   record(config.models.muse, msg.usage);
-  return parseJson<Brief>(textOf(msg), "Muse");
+  return parseJson<Brief>(textOrThrow(msg, "Muse"), "Muse");
 }
 
 // ── The Artisan ──────────────────────────────────────────────────────
@@ -485,14 +513,14 @@ export async function critic(args: {
 
   const msg = await client.messages.create({
     model: config.models.critic,
-    max_tokens: 12000,
+    max_tokens: 16000,
     thinking: { type: "adaptive" },
     system: CRITIC_SYSTEM,
     output_config: schemaFormat(CRITIC_SCHEMA),
     messages: [{ role: "user", content }],
   });
   record(config.models.critic, msg.usage);
-  const critique = parseJson<Critique>(textOf(msg), "Critic");
+  const critique = parseJson<Critique>(textOrThrow(msg, "Critic"), "Critic");
   if (isFinal && critique.verdict === "revise") critique.verdict = "decline";
   return critique;
 }
@@ -517,12 +545,13 @@ export async function finalize(args: {
 }): Promise<{ title: string; statement: string }> {
   const msg = await client.messages.create({
     model: config.models.artisan,
-    max_tokens: 4000,
+    max_tokens: 8000,
+    thinking: { type: "adaptive" },
     system:
       `You are the Artisan of Lumen Atelier. Your piece was just accepted into the gallery by the Critic. ` +
       `Write its final title and a short artist statement. The statement should speak to what the piece explores ` +
       `and, briefly, how it came to be through the studio's revision process. Warm, precise, no grandiosity.`,
-    output_config: schemaFormat(FINALIZE_SCHEMA),
+    output_config: { ...schemaFormat(FINALIZE_SCHEMA), effort: "low" },
     messages: [{
       role: "user",
       content:
@@ -534,5 +563,5 @@ export async function finalize(args: {
     }],
   });
   record(config.models.artisan, msg.usage);
-  return parseJson<{ title: string; statement: string }>(textOf(msg), "Finalize");
+  return parseJson<{ title: string; statement: string }>(textOrThrow(msg, "Finalize"), "Finalize");
 }
