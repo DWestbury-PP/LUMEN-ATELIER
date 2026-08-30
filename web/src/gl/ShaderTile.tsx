@@ -17,12 +17,20 @@ const WARM_MARGIN = "50% 0px";
 
 const SUPPORTED = tilePainterSupported();
 
-export default function ShaderTile({ glsl }: { glsl: string }) {
-  if (!SUPPORTED) return <ShaderCanvas glsl={glsl} maxDpr={1} />;
-  return <PaintedTile glsl={glsl} />;
+interface Props {
+  glsl: string;
+  /** False = paint one frame and hold it as a still (default true). */
+  animate?: boolean;
+  /** Transparent background so a poster underneath shows until the first frame lands. */
+  overlay?: boolean;
 }
 
-function PaintedTile({ glsl }: { glsl: string }) {
+export default function ShaderTile({ glsl, animate = true, overlay = false }: Props) {
+  if (!SUPPORTED) return <ShaderCanvas glsl={glsl} maxDpr={1} className={overlay ? "glwrap--overlay" : undefined} />;
+  return <PaintedTile glsl={glsl} animate={animate} overlay={overlay} />;
+}
+
+function PaintedTile({ glsl, animate, overlay }: Required<Props>) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const handleRef = useRef<TileHandle | null>(null);
@@ -38,6 +46,7 @@ function PaintedTile({ glsl }: { glsl: string }) {
       setStatus("unsupported");
       return;
     }
+    handle.setAnimate(animate);
     const io = new IntersectionObserver(
       ([entry]) => handle.setVisible(entry.isIntersecting),
       { rootMargin: WARM_MARGIN }
@@ -50,10 +59,12 @@ function PaintedTile({ glsl }: { glsl: string }) {
     };
   }, [glsl]);
 
-  if (status === "unsupported") return <ShaderCanvas glsl={glsl} maxDpr={1} />;
+  useEffect(() => { handleRef.current?.setAnimate(animate); }, [animate]);
+
+  if (status === "unsupported") return <ShaderCanvas glsl={glsl} maxDpr={1} className={overlay ? "glwrap--overlay" : undefined} />;
 
   return (
-    <div ref={wrapRef} className="glwrap">
+    <div ref={wrapRef} className={`glwrap${overlay ? " glwrap--overlay" : ""}`}>
       <canvas ref={canvasRef} />
       {status === "error" && <div className="gl-error">this piece could not be rendered</div>}
       {status === "heavy" && (

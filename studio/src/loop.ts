@@ -10,6 +10,7 @@ import { emitStudio } from "./bus.js";
 import { renderShader } from "./renderer.js";
 import { maybeResearch } from "./tavily.js";
 import { muse, artisan, critic, finalize, resetUsageTally, summarizeUsage, type Brief, type Critique } from "./agents.js";
+import { ensurePoster } from "./posters.js";
 
 const COMPILE_RETRIES = 3;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -162,6 +163,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
     const { title, statement } = await finalize({ brief, glsl: approvedGlsl, critiqueHistory, existingTitles });
     await q.approvePiece(id, approvedGlsl, title, statement, iterationsUsed);
     emitStudio("piece.approved", id, { title, statement, iterations: iterationsUsed });
+    void ensurePoster(id, approvedGlsl).catch((err) => console.warn(`[posters] piece ${id}: ${String(err)}`));
   } else if (!parked) {
     await q.declinePiece(id, iterationsUsed);
     emitStudio("piece.declined", id, { iterations: iterationsUsed });
