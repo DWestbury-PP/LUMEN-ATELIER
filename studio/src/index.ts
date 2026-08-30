@@ -1,14 +1,16 @@
 import { config, hasKey } from "./config.js";
-import { ensureSchema, waitForDb } from "./db.js";
+import { enableTrigrams, ensureSchema, waitForDb } from "./db.js";
 import { seedIfEmpty } from "./seeds.js";
 import { buildServer } from "./server.js";
 import { state, studioLoop } from "./loop.js";
 import { startPosterBackfill } from "./posters.js";
+import { startTagBackfill } from "./tagging.js";
 
 async function main() {
   console.log("[studio] waiting for database…");
   await waitForDb();
   await ensureSchema();
+  await enableTrigrams();
 
   const seeded = await seedIfEmpty();
   if (seeded) console.log("[studio] gallery seeded with calibration pieces");
@@ -25,6 +27,7 @@ async function main() {
   // Posters for the whole collection, filled in behind the scenes and only
   // while the studio is idle — the renderer is the Critic's eye first.
   startPosterBackfill(() => state.phase !== "idle");
+  if (hasKey()) startTagBackfill(() => state.phase !== "idle");
 
   studioLoop().catch((err) => {
     console.error("[studio] loop crashed:", err);

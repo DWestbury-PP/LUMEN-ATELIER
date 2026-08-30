@@ -162,6 +162,42 @@ button { font-family: inherit; }
 }
 .section-label::after { content: ""; height: 1px; flex: 1; background: var(--gold-faint); }
 
+/* ── The finder: search + tags ── */
+.finder { margin: -6px 0 30px; display: flex; flex-direction: column; gap: 14px; }
+.finder input {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg-raise);
+  border: 1px solid var(--gold-faint);
+  color: var(--ink);
+  font: 15px var(--font-body);
+  padding: 11px 14px;
+  border-radius: 2px;
+  transition: border-color 0.25s ease;
+}
+.finder input::placeholder { color: var(--ink-faint); }
+.finder input:focus { outline: none; border-color: var(--gold-soft); }
+.finder input::-webkit-search-cancel-button { filter: invert(0.6); }
+.finder-status { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-dim); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: 11px var(--font-body);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--gold-faint);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.chip:hover { color: var(--ink); border-color: var(--gold-soft); }
+.chip.active { color: var(--bg); background: var(--gold); border-color: var(--gold); }
+.chip.more { border-style: dashed; }
+.piece-tags { margin-top: 18px; }
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));

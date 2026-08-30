@@ -6,6 +6,7 @@ export interface Brief {
   motion: string;
   composition: string;
   mood: string;
+  tags?: string[];
 }
 
 export interface Critique {
@@ -41,7 +42,10 @@ export interface Piece {
   approved_at: string | null;
   has_poster?: boolean;
   poster_at?: string | null;
+  tags?: string[] | null;
 }
+
+export interface TagCount { tag: string; count: number }
 
 export interface IterationRow {
   idx: number;

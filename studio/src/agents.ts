@@ -6,6 +6,7 @@
 // The Critic is the gate. The Artisan never ships its own work.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { TAG_VOCABULARY, cleanTags } from "./tags.js";
 import { config } from "./config.js";
 import type { Research } from "./tavily.js";
 
@@ -21,6 +22,8 @@ export interface Brief {
   motion: string;
   composition: string;
   mood: string;
+  /** 3-6 terms from the tag vocabulary (see tags.ts). */
+  tags?: string[];
 }
 
 export interface Critique {
@@ -118,6 +121,7 @@ Principles:
 - Name a genuine artistic reference (a movement, artist, or natural phenomenon) and say what to take from it.
 - Vary your output across commissions: sometimes geometric and austere, sometimes organic and lush, sometimes volumetric and atmospheric. Avoid defaulting to "swirling nebula".
 - The medium is pure math — no textures, no images. Play to its strengths: precision, infinite detail, hypnotic motion.
+- Tag the brief with 3-6 terms from the gallery's vocabulary (mood, motion, palette, form, technique) so visitors can find the piece later. Choose only terms that clearly apply.
 - You stand in two lineages. The demoscene (raymarched volumes, mathematical spectacle) — and the generative-art tradition. Its house saints, and what to take from each: Joshua Davis (Praystation) — layered organic systems grown from seeded randomness, bold flat color; Erik Natzke — thousands of translucent painterly strokes accumulating into blooms and color fields, paintings that feel hand-made by an algorithm; Jared Tarbell (Complexification) — emergence from tiny rules: substrate crack lattices, sand-grain light trails, crystalline growth. Also Vera Molnár's disciplined variation, Casey Reas's processes, Tyler Hobbs's flow fields. Remember: a great piece is a SYSTEM with beautiful rules — variation that feels alive rather than random. Some briefs should ask for grown compositions, not carved ones.`;
 
 const MUSE_SCHEMA = {
@@ -130,10 +134,48 @@ const MUSE_SCHEMA = {
     motion: { type: "string", description: "Concrete description of how the piece moves and evolves over ~20 seconds" },
     composition: { type: "string", description: "Spatial arrangement: focal point, depth, negative space" },
     mood: { type: "string", description: "The feeling a viewer should have" },
+    tags: {
+      type: "array",
+      items: { type: "string", enum: TAG_VOCABULARY },
+      description: "3 to 6 tags from the vocabulary that a visitor could use to find this piece: its mood, motion, palette, form, technique",
+    },
   },
-  required: ["title_working", "concept", "palette", "reference", "motion", "composition", "mood"],
+  required: ["title_working", "concept", "palette", "reference", "motion", "composition", "mood", "tags"],
   additionalProperties: false,
 };
+
+// ── Tagging (backfill for pieces that predate the vocabulary) ────────
+
+const TAG_SCHEMA = {
+  type: "object",
+  properties: {
+    tags: { type: "array", items: { type: "string", enum: TAG_VOCABULARY }, description: "3 to 6 tags" },
+  },
+  required: ["tags"],
+  additionalProperties: false,
+};
+
+export async function tagPiece(p: { title: string | null; statement: string | null; brief: unknown }): Promise<string[]> {
+  const b = (p.brief ?? {}) as Partial<Brief>;
+  const text = [
+    `Title: ${p.title ?? "Untitled"}`,
+    p.statement ? `Artist statement: ${p.statement}` : "",
+    b.concept ? `Concept: ${b.concept}` : "",
+    b.mood ? `Mood: ${b.mood}` : "",
+    b.motion ? `Motion: ${b.motion}` : "",
+    b.composition ? `Composition: ${b.composition}` : "",
+    b.palette ? `Palette: ${JSON.stringify(b.palette)}` : "",
+  ].filter(Boolean).join("\n");
+  const msg = await client.messages.create({
+    model: "claude-haiku-4-5",
+    max_tokens: 400,
+    system: "You catalogue pieces for an art gallery of real-time generative shader art. Given a piece's title, statement, and brief, choose 3 to 6 tags from the fixed vocabulary that best describe its mood, motion, palette, form, and technique. Choose only terms that clearly apply.",
+    output_config: schemaFormat(TAG_SCHEMA),
+    messages: [{ role: "user", content: text }],
+  });
+  record("claude-haiku-4-5", msg.usage);
+  return cleanTags(parseJson<{ tags: string[] }>(textOf(msg), "Tagger").tags);
+}
 
 export interface RecentWork {
   title: string | null;
