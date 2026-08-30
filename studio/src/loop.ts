@@ -11,6 +11,7 @@ import { renderShader } from "./renderer.js";
 import { maybeResearch } from "./tavily.js";
 import { muse, artisan, critic, finalize, resetUsageTally, summarizeUsage, type Brief, type Critique } from "./agents.js";
 import { ensurePoster } from "./posters.js";
+import { cleanTags } from "./tags.js";
 
 const COMPILE_RETRIES = 3;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -59,7 +60,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
     const recentWork = await q.recentApprovedSummaries(12).catch(() => []);
     const inspiration = (piece as PieceRow & { inspiration?: string[] | null }).inspiration ?? null;
     brief = await muse(piece.theme, research, recentWork, inspiration);
-    await q.setBrief(id, brief);
+    await q.setBrief(id, brief, cleanTags(brief.tags));
     emitStudio("muse.brief", id, { brief });
   }
 

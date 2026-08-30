@@ -70,6 +70,8 @@ export async function ensureSchema(): Promise<void> {
     alter table pieces add column if not exists inspiration jsonb;
     alter table pieces add column if not exists poster bytea;
     alter table pieces add column if not exists poster_at timestamptz;
+    alter table pieces add column if not exists tags text[];
+    create index if not exists idx_pieces_tags on pieces using gin(tags);
     create index if not exists idx_pieces_status on pieces(status);
     create index if not exists idx_iterations_piece on iterations(piece_id);
     create index if not exists idx_events_piece on events(piece_id);
@@ -104,6 +106,26 @@ export interface PieceRow {
   approved_at: string | null;
   has_poster?: boolean;
   poster_at?: string | null;
+  tags?: string[] | null;
+}
+
+// Gallery card columns: metadata, tags, and a poster pointer. No shader
+// source, no brief, no poster bytes.
+const CARD_COLS =
+  "id, title, statement, theme, patron, status, seed, iterations, created_at, approved_at, poster_at, tags, " +
+  "(poster is not null) as has_poster";
+
+// Trigram similarity (pg_trgm) makes half-remembered titles findable. It's a
+// contrib extension; if the database can't create it, search still works
+// on substrings and full text.
+let trigrams = false;
+export async function enableTrigrams(): Promise<void> {
+  try {
+    await pool.query("create extension if not exists pg_trgm");
+    trigrams = true;
+  } catch (err) {
+    console.warn(`[db] pg_trgm unavailable — title search without fuzzy matching (${String(err).slice(0, 80)})`);
+  }
 }
 
 // Every column except the poster bytes — those only ever leave through the
@@ -355,8 +377,11 @@ export const q = {
     await pool.query("update pieces set status = $2 where id = $1", [id, status]);
   },
 
-  async setBrief(id: number, brief: unknown): Promise<void> {
-    await pool.query("update pieces set brief = $2 where id = $1", [id, JSON.stringify(brief)]);
+  async setBrief(id: number, brief: unknown, tags?: string[]): Promise<void> {
+    await pool.query(
+      "update pieces set brief = $2, tags = coalesce($3, tags) where id = $1",
+      [id, JSON.stringify(brief), tags && tags.length > 0 ? tags : null]
+    );
   },
 
   async approvePiece(id: number, glsl: string, title: string, statement: string, iterations: number): Promise<void> {
@@ -397,8 +422,7 @@ export const q = {
       // source is fetched per piece when a tile comes to life — 181 pieces of
       // GLSL and briefs were 2 MB on every visit, most of it never scrolled to.
       const r = await pool.query(
-        "select id, title, statement, theme, patron, status, seed, iterations, created_at, approved_at, poster_at, " +
-        "(poster is not null) as has_poster from pieces where status = 'approved' order by coalesce(approved_at, created_at) desc"
+        `select ${CARD_COLS} from pieces where status = 'approved' order by coalesce(approved_at, created_at) desc`
       );
       return r.rows;
     }
@@ -410,6 +434,48 @@ export const q = {
       return r.rows;
     }
     const r = await pool.query(`select ${PIECE_COLS} from pieces order by id desc limit 200`);
+    return r.rows;
+  },
+
+  /** The gallery, filtered: free text over title/statement/tags (substring,
+   *  full-text, and fuzzy title), and/or one tag. Title hits rank first. */
+  async searchPieces(opts: { q?: string; tag?: string }): Promise<PieceRow[]> {
+    const text = (opts.q ?? "").trim().slice(0, 80) || null;
+    const tag = (opts.tag ?? "").trim().toLowerCase() || null;
+    const fuzzy = trigrams ? " or similarity(coalesce(title, ''), $1) > 0.3" : "";
+    const r = await pool.query(
+      `select ${CARD_COLS},
+         (title ilike '%' || coalesce($1, '') || '%') as title_hit
+       from pieces
+       where status = 'approved'
+         and ($2::text is null or $2 = any(tags))
+         and ($1::text is null
+           or title ilike '%' || $1 || '%'
+           or statement ilike '%' || $1 || '%'
+           or lower($1) = any(tags)
+           or to_tsvector('english', coalesce(title, '') || ' ' || coalesce(statement, '') || ' ' || coalesce(array_to_string(tags, ' '), ''))
+              @@ plainto_tsquery('english', $1)${fuzzy})
+       order by title_hit desc, coalesce(approved_at, created_at) desc`,
+      [text, tag]
+    );
+    return r.rows.map(({ title_hit: _hit, ...row }) => row);
+  },
+
+  async tagCounts(): Promise<{ tag: string; count: number }[]> {
+    const r = await pool.query(
+      "select t as tag, count(*)::int as count from pieces, unnest(tags) as t where status = 'approved' group by t order by count desc, t asc"
+    );
+    return r.rows;
+  },
+
+  async setTags(id: number, tags: string[]): Promise<void> {
+    await pool.query("update pieces set tags = $2 where id = $1", [id, tags]);
+  },
+
+  async piecesMissingTags(): Promise<{ id: number; title: string | null; statement: string | null; brief: unknown }[]> {
+    const r = await pool.query(
+      "select id, title, statement, brief from pieces where status = 'approved' and tags is null order by coalesce(approved_at, created_at) desc"
+    );
     return r.rows;
   },
 

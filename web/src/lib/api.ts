@@ -1,4 +1,4 @@
-import type { Piece, PieceDetail, StudioStatus } from "./types";
+import type { Piece, PieceDetail, StudioStatus, TagCount } from "./types";
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -7,7 +7,13 @@ async function get<T>(url: string): Promise<T> {
 }
 
 export const api = {
-  pieces: (status = "approved") => get<Piece[]>(`/api/pieces?status=${status}`),
+  pieces: (status = "approved", filter?: { q?: string; tag?: string }) => {
+    const p = new URLSearchParams({ status });
+    if (filter?.q?.trim()) p.set("q", filter.q.trim());
+    if (filter?.tag?.trim()) p.set("tag", filter.tag.trim());
+    return get<Piece[]>(`/api/pieces?${p}`);
+  },
+  tags: () => get<TagCount[]>("/api/tags"),
   piece: (id: number | string) => get<PieceDetail>(`/api/pieces/${id}`),
   shader: (id: number) => get<{ id: number; glsl: string | null }>(`/api/pieces/${id}/shader`),
   posterUrl: (p: Pick<Piece, "id" | "poster_at">) =>

@@ -148,6 +148,11 @@ export default function PiecePage() {
             </p>
           )}
           {piece.statement && <p className="statement">{piece.statement}</p>}
+          {piece.tags && piece.tags.length > 0 && (
+            <div className="chips piece-tags">
+              {piece.tags.map((t) => <Link key={t} className="chip" to={`/?tag=${encodeURIComponent(t)}`}>{t}</Link>)}
+            </div>
+          )}
           {piece.theme && (
             <p className="statement" style={{ fontSize: 13, marginTop: 14 }}>
               Commissioned{piece.patron ? ` by ${piece.patron}` : ""} on the theme: “{piece.theme}”

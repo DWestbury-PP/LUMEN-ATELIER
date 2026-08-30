@@ -201,8 +201,19 @@ export function buildServer() {
 
   // ── Pieces ────────────────────────────────────────────────────────
 
+  app.get("/api/tags", async (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    res.json(await cached("tag-counts", 60_000, () => q.tagCounts()));
+  });
+
   app.get("/api/pieces", async (req, res) => {
     const status = typeof req.query.status === "string" ? req.query.status : "approved";
+    const text = typeof req.query.q === "string" ? req.query.q : "";
+    const tag = typeof req.query.tag === "string" ? req.query.tag : "";
+    if (status === "approved" && (text.trim() || tag.trim())) {
+      res.setHeader("Cache-Control", "public, max-age=20");
+      return res.json(await q.searchPieces({ q: text, tag }));
+    }
     if (status === "approved") {
       // The gallery's hot path — cache briefly and let clients revalidate.
       res.setHeader("Cache-Control", "public, max-age=20");
