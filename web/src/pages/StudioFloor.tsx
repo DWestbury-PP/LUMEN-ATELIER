@@ -133,6 +133,14 @@ export default function StudioFloor() {
   const [asleep, setAsleep] = useState(false);
   const [, setTick] = useState(0);
   const feedRef = useRef<HTMLDivElement | null>(null);
+  // The codepane follows the token stream, but lets a reader who has
+  // scrolled up stay where they are until they return to the bottom.
+  const codeRef = useRef<HTMLDivElement | null>(null);
+  const codeStick = useRef(true);
+  useEffect(() => {
+    const el = codeRef.current;
+    if (el && codeStick.current) el.scrollTop = el.scrollHeight;
+  }, [thinking, delta]);
 
   // Tick the elapsed clock while the ensemble works.
   useEffect(() => {
@@ -255,7 +263,14 @@ export default function StudioFloor() {
           </div>
 
           {(drafting || delta || thinking) && (
-            <div className="codepane">
+            <div
+              className="codepane"
+              ref={codeRef}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                codeStick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+              }}
+            >
               {thinking && <span className="think">{thinking}{!delta && <span className="cursor" />}{"\n\n"}</span>}
               {delta}
               {drafting && delta && <span className="cursor" />}
