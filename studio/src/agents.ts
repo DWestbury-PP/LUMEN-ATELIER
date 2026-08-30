@@ -41,7 +41,8 @@ export interface ArtisanDraft {
 
 const PRICES: Record<string, { in: number; out: number }> = {
   "claude-haiku-4-5": { in: 1, out: 5 },
-  "claude-sonnet-5": { in: 3, out: 15 },
+  "claude-sonnet-5": { in: 2, out: 10 },
+  "claude-opus-5": { in: 5, out: 25 },
   "claude-sonnet-4-6": { in: 3, out: 15 },
   "claude-opus-4-8": { in: 5, out: 25 },
   "claude-opus-4-7": { in: 5, out: 25 },
@@ -296,6 +297,11 @@ export async function artisan(
     // Deep thinking on a hard brief ate the budget mid-shader — never try
     // to salvage a truncated draft; the retry path handles it.
     throw new Error("Artisan ran out of tokens mid-shader (truncated draft discarded)");
+  }
+  if (msg.stop_reason === "refusal") {
+    // Opus 5 can decline a request outright (HTTP 200, no shader). Unlikely
+    // for light-painting, but never mistake an empty answer for a draft.
+    throw new Error("Artisan declined the brief (stop_reason=refusal)");
   }
   const full = textOf(msg);
 
