@@ -40,6 +40,11 @@ const VS =
 
 const MAX_CONCURRENT_COMPILES = 2;
 
+// Compiled programs kept per session. Beyond this, the least recently drawn
+// program not on screen is released — a wall of 181 shaders shouldn't pin
+// 181 GPU programs forever.
+const MAX_PROGRAMS = 24;
+
 // Quality ladder. `animate` caps how many tiles run live (rest hold stills).
 const LEVELS = [
   { fps: 30, scale: 1, animate: Infinity },
@@ -79,6 +84,7 @@ interface ProgramEntry {
   uRes: WebGLUniformLocation | null;
   uTime: WebGLUniformLocation | null;
   status: TileStatus;
+  lastUsed: number;
 }
 
 interface Tile {
@@ -94,10 +100,13 @@ interface Tile {
   rank: number;
   /** Has at least one real frame on its canvas (may be frozen). */
   hasFrame: boolean;
+  /** False = paint one frame, then hold it as a still. */
+  animate: boolean;
 }
 
 export interface TileHandle {
   setVisible(v: boolean): void;
+  setAnimate(v: boolean): void;
   retry(): void;
   dispose(): void;
 }
@@ -167,11 +176,13 @@ class TilePainter {
       onStatus,
       rank: Infinity,
       hasFrame: false,
+      animate: true,
     };
     this.tiles.add(tile);
     this.start();
     return {
       setVisible: (v) => { tile.visible = v; if (v) this.start(); },
+      setAnimate: (v) => { tile.animate = v; if (v) this.start(); },
       retry: () => this.retry(glsl),
       dispose: () => { this.tiles.delete(tile); },
     };
@@ -246,10 +257,29 @@ class TilePainter {
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
-    e = { prog, vs, fs, uRes: null, uTime: null, status: "compiling" };
+    e = { prog, vs, fs, uRes: null, uTime: null, status: "compiling", lastUsed: performance.now() };
     this.entries.set(glsl, e);
     this.compiling.add(glsl);
+    this.evictPrograms(gl);
     return e;
+  }
+
+  /** Keep the program cache bounded: release the least recently drawn
+   *  programs that no visible tile needs and that aren't mid-compile. */
+  private evictPrograms(gl: WebGL2RenderingContext) {
+    if (this.entries.size <= MAX_PROGRAMS) return;
+    const needed = new Set<string>();
+    for (const tile of this.tiles) if (tile.visible) needed.add(tile.glsl);
+    const victims = [...this.entries.entries()]
+      .filter(([key]) => !needed.has(key) && !this.compiling.has(key))
+      .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    for (const [key, e] of victims) {
+      if (this.entries.size <= MAX_PROGRAMS) break;
+      gl.deleteProgram(e.prog);
+      gl.deleteShader(e.vs);
+      gl.deleteShader(e.fs);
+      this.entries.delete(key);
+    }
   }
 
   /** May this tile start a compile right now? Async drivers take a pair at a
@@ -401,12 +431,13 @@ class TilePainter {
       if (!tile.visible || status !== "ready") continue;
       if (now - tile.lastDraw < minFrameGap) continue;
       if (tile.hasFrame) {
-        if (tile.rank >= q.animate) continue; // holds its still
+        if (!tile.animate || tile.rank >= q.animate) continue; // holds its still
       } else if (this.level > 0 && firstPaints >= 1) {
         continue;
       }
 
       const e = this.entries.get(tile.glsl)!;
+      e.lastUsed = now;
       const dpr = Math.min(window.devicePixelRatio || 1, 1);
       if (tile.el.clientWidth === 0) continue; // not laid out yet
       const w = Math.max(1, Math.round(tile.el.clientWidth * dpr * q.scale));

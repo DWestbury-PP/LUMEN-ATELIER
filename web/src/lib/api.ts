@@ -9,6 +9,9 @@ async function get<T>(url: string): Promise<T> {
 export const api = {
   pieces: (status = "approved") => get<Piece[]>(`/api/pieces?status=${status}`),
   piece: (id: number | string) => get<PieceDetail>(`/api/pieces/${id}`),
+  shader: (id: number) => get<{ id: number; glsl: string | null }>(`/api/pieces/${id}/shader`),
+  posterUrl: (p: Pick<Piece, "id" | "poster_at">) =>
+    `/api/pieces/${p.id}/poster.jpg?v=${encodeURIComponent(p.poster_at ?? "")}`,
   status: () => get<StudioStatus>("/api/status"),
   commission: async (theme: string, patron: string, images: string[] = []): Promise<{ ok: boolean; error?: string }> => {
     const res = await fetch("/api/commissions", {

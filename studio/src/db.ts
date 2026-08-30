@@ -68,6 +68,8 @@ export async function ensureSchema(): Promise<void> {
     alter table pieces add column if not exists ledger jsonb;
     alter table pieces add column if not exists curator_note text;
     alter table pieces add column if not exists inspiration jsonb;
+    alter table pieces add column if not exists poster bytea;
+    alter table pieces add column if not exists poster_at timestamptz;
     create index if not exists idx_pieces_status on pieces(status);
     create index if not exists idx_iterations_piece on iterations(piece_id);
     create index if not exists idx_events_piece on events(piece_id);
@@ -100,7 +102,15 @@ export interface PieceRow {
   iterations: number;
   created_at: string;
   approved_at: string | null;
+  has_poster?: boolean;
+  poster_at?: string | null;
 }
+
+// Every column except the poster bytes — those only ever leave through the
+// image endpoint, never inside JSON.
+const PIECE_COLS =
+  "id, title, statement, theme, patron, brief, glsl, status, seed, iterations, created_at, approved_at, " +
+  "commissioned_by, ledger, curator_note, inspiration, poster_at, (poster is not null) as has_poster";
 
 export const q = {
   async nextQueued(): Promise<PieceRow | null> {
@@ -203,8 +213,9 @@ export const q = {
     const r = await pool.query(
       `update pieces set status = 'approved', glsl = $2, approved_at = now(),
          title = coalesce($3, title, brief->>'title_working', 'Untitled'),
-         statement = coalesce($4, statement, 'Hung by the curator''s decision.')
-       where id = $1 returning *`,
+         statement = coalesce($4, statement, 'Hung by the curator''s decision.'),
+         poster = null, poster_at = null
+       where id = $1 returning ${PIECE_COLS}`,
       [pieceId, it.rows[0].glsl, meta?.title ?? null, meta?.statement ?? null]
     );
     return r.rows[0] ?? null;
@@ -381,19 +392,55 @@ export const q = {
   },
 
   async listPieces(status?: string): Promise<PieceRow[]> {
+    if (status === "approved") {
+      // The gallery's hot path: metadata and a poster pointer only. Shader
+      // source is fetched per piece when a tile comes to life — 181 pieces of
+      // GLSL and briefs were 2 MB on every visit, most of it never scrolled to.
+      const r = await pool.query(
+        "select id, title, statement, theme, patron, status, seed, iterations, created_at, approved_at, poster_at, " +
+        "(poster is not null) as has_poster from pieces where status = 'approved' order by coalesce(approved_at, created_at) desc"
+      );
+      return r.rows;
+    }
     if (status) {
       const r = await pool.query(
-        "select id, title, statement, theme, patron, brief, glsl, status, seed, iterations, created_at, approved_at from pieces where status = $1 order by coalesce(approved_at, created_at) desc",
+        `select ${PIECE_COLS} from pieces where status = $1 order by coalesce(approved_at, created_at) desc`,
         [status]
       );
       return r.rows;
     }
-    const r = await pool.query("select * from pieces order by id desc limit 200");
+    const r = await pool.query(`select ${PIECE_COLS} from pieces order by id desc limit 200`);
+    return r.rows;
+  },
+
+  async getShader(id: number): Promise<{ glsl: string | null } | null> {
+    const r = await pool.query("select glsl from pieces where id = $1", [id]);
+    return r.rows[0] ?? null;
+  },
+
+  async hasPoster(id: number): Promise<boolean> {
+    const r = await pool.query("select poster is not null as has from pieces where id = $1", [id]);
+    return !!r.rows[0]?.has;
+  },
+
+  async setPoster(id: number, jpeg: Buffer): Promise<void> {
+    await pool.query("update pieces set poster = $2, poster_at = now() where id = $1", [id, jpeg]);
+  },
+
+  async getPoster(id: number): Promise<{ poster: Buffer; poster_at: string } | null> {
+    const r = await pool.query("select poster, poster_at from pieces where id = $1 and poster is not null", [id]);
+    return r.rows[0] ?? null;
+  },
+
+  async piecesMissingPoster(): Promise<{ id: number; glsl: string }[]> {
+    const r = await pool.query(
+      "select id, glsl from pieces where status = 'approved' and glsl is not null and poster is null order by coalesce(approved_at, created_at) desc"
+    );
     return r.rows;
   },
 
   async getPiece(id: number): Promise<(PieceRow & { iterationRows: unknown[] }) | null> {
-    const p = await pool.query("select * from pieces where id = $1", [id]);
+    const p = await pool.query(`select ${PIECE_COLS} from pieces where id = $1`, [id]);
     if (!p.rows[0]) return null;
     const its = await pool.query(
       "select idx, glsl, artisan_notes, compile_ok, compile_log, frames, critique, created_at from iterations where piece_id = $1 order by idx asc",

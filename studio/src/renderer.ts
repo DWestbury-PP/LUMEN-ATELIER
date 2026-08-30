@@ -36,19 +36,21 @@ async function waitForRenderer(budgetMs: number): Promise<boolean> {
   return false;
 }
 
-export async function renderShader(glsl: string): Promise<RenderResult> {
+export interface RenderOpts { width: number; height: number; times: number[] }
+
+/** The Critic's view: the configured frame size and timestamps. */
+export function renderShader(glsl: string): Promise<RenderResult> {
+  return renderFrames(glsl, { width: config.frame.width, height: config.frame.height, times: config.frame.times });
+}
+
+export async function renderFrames(glsl: string, opts: RenderOpts): Promise<RenderResult> {
   for (let attempt = 1; attempt <= RENDER_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(`${config.rendererUrl}/render`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         signal: AbortSignal.timeout(90_000),
-        body: JSON.stringify({
-          glsl,
-          width: config.frame.width,
-          height: config.frame.height,
-          times: config.frame.times,
-        }),
+        body: JSON.stringify({ glsl, width: opts.width, height: opts.height, times: opts.times }),
       });
       if (res.ok) return (await res.json()) as RenderResult;
       if (res.status < 500) return { ok: false, stage: "runtime", log: `renderer HTTP ${res.status}` };

@@ -31,13 +31,16 @@ export interface Piece {
   statement: string | null;
   theme: string | null;
   patron: string | null;
-  brief: Brief | null;
-  glsl: string | null;
+  brief?: Brief | null;
+  /** Absent from the gallery list — fetched per piece via api.shader(). */
+  glsl?: string | null;
   status: string;
   seed: boolean;
   iterations: number;
   created_at: string;
   approved_at: string | null;
+  has_poster?: boolean;
+  poster_at?: string | null;
 }
 
 export interface IterationRow {
@@ -52,6 +55,8 @@ export interface IterationRow {
 }
 
 export interface PieceDetail extends Piece {
+  brief: Brief | null;
+  glsl: string | null;
   iterationRows: IterationRow[];
 }
 

@@ -30,7 +30,7 @@ export default function Exhibit() {
       // Shuffle the rotation so pieces from the same creative era (which can
       // share a family resemblance) don't hang side by side; a deep-linked
       // start piece leads the walk.
-      const withArt = all.filter((p) => p.glsl);
+      const withArt = all.filter((p) => p.status === "approved");
       for (let i = withArt.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [withArt[i], withArt[j]] = [withArt[j], withArt[i]];
@@ -47,6 +47,26 @@ export default function Exhibit() {
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Shader source arrives per piece, just in time: the piece on the wall
+  // and its two neighbours, never the whole collection.
+  const shaders = useRef(new Map<number, string | null>());
+  const [, loaded] = useState(0);
+  const ensureShader = useCallback((p: Piece | undefined) => {
+    if (!p || shaders.current.has(p.id)) return;
+    shaders.current.set(p.id, null);
+    api.shader(p.id)
+      .then((r) => { shaders.current.set(p.id, r.glsl); loaded((n) => n + 1); })
+      .catch(() => shaders.current.delete(p.id));
+  }, []);
+  useEffect(() => {
+    const n = pieces.length;
+    if (n === 0) return;
+    ensureShader(pieces[idx]);
+    ensureShader(pieces[(idx + 1) % n]);
+    ensureShader(pieces[(idx - 1 + n) % n]);
+  }, [idx, pieces, ensureShader]);
+  const glslOf = (p: Piece | null | undefined) => (p ? shaders.current.get(p.id) ?? null : null);
 
   const step = useCallback((delta: number) => {
     const n = pieces.length;
@@ -125,13 +145,14 @@ export default function Exhibit() {
       onTouchEnd={onTouchEnd}
       title="tap or click to advance · swipe or arrow keys to browse"
     >
-      {previous?.glsl && (
+      {previous && glslOf(previous) && (
         <div className="layer out" key={`out-${outgoing}-${idx}`}>
-          <ShaderCanvas glsl={previous.glsl} maxDpr={1.5} fpsCap={60} />
+          <ShaderCanvas glsl={glslOf(previous)!} maxDpr={1.5} fpsCap={60} />
         </div>
       )}
       <div className="layer in" key={`in-${idx}`}>
-        {current?.glsl && <ShaderCanvas glsl={current.glsl} maxDpr={1.5} fpsCap={60} />}
+        {current?.has_poster && <img className="poster" src={api.posterUrl(current)} alt="" decoding="async" />}
+        {glslOf(current) && <ShaderCanvas glsl={glslOf(current)!} maxDpr={1.5} fpsCap={60} className="glwrap--overlay" />}
       </div>
 
       {pieces.length > 1 && (

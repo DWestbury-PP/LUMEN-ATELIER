@@ -5,6 +5,7 @@ import { config, hasKey } from "./config.js";
 import { q } from "./db.js";
 import { onStudio, emitStudio } from "./bus.js";
 import { state } from "./loop.js";
+import { ensurePoster } from "./posters.js";
 import { renderShader } from "./renderer.js";
 import { finalize, type Brief, type Critique } from "./agents.js";
 import {
@@ -167,6 +168,8 @@ export function buildServer() {
 
     const piece = await q.approveDraftOverride(id, idx, meta);
     if (!piece) return res.status(404).json({ error: "no draft at that index" });
+    // The wall changed: a fresh poster for the newly hung draft.
+    void ensurePoster(piece.id, draft.glsl, true).catch((err) => console.warn(`[posters] piece ${id}: ${String(err)}`));
     emitStudio("curator.hung_draft", piece.id, { title: piece.title, idx });
     res.json(piece);
   });
@@ -215,6 +218,29 @@ export function buildServer() {
     const piece = await q.getPiece(id);
     if (!piece) return res.status(404).json({ error: "not found" });
     res.json(piece);
+  });
+
+  // Shader source on demand — a gallery tile asks for it only when it comes
+  // to life, the exhibit only for the piece on the wall and its neighbours.
+  app.get("/api/pieces/:id/shader", async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: "bad id" });
+    const row = await q.getShader(id);
+    if (!row) return res.status(404).json({ error: "not found" });
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.json({ id, glsl: row.glsl });
+  });
+
+  // The poster: one still, rendered by the studio's own eye. The URL carries
+  // a version (?v=poster_at) so the bytes can be cached forever.
+  app.get("/api/pieces/:id/poster.jpg", async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(400).end();
+    const row = await q.getPoster(id);
+    if (!row) return res.status(404).end();
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.end(row.poster);
   });
 
   // Submit a commission PROPOSAL. Every proposal is reviewed by the curator

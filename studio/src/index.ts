@@ -2,7 +2,8 @@ import { config, hasKey } from "./config.js";
 import { ensureSchema, waitForDb } from "./db.js";
 import { seedIfEmpty } from "./seeds.js";
 import { buildServer } from "./server.js";
-import { studioLoop } from "./loop.js";
+import { state, studioLoop } from "./loop.js";
+import { startPosterBackfill } from "./posters.js";
 
 async function main() {
   console.log("[studio] waiting for database…");
@@ -20,6 +21,10 @@ async function main() {
       ? "[studio] ANTHROPIC_API_KEY present — the ensemble is awake"
       : "[studio] no ANTHROPIC_API_KEY — gallery-only mode (the ensemble sleeps)");
   });
+
+  // Posters for the whole collection, filled in behind the scenes and only
+  // while the studio is idle — the renderer is the Critic's eye first.
+  startPosterBackfill(() => state.phase !== "idle");
 
   studioLoop().catch((err) => {
     console.error("[studio] loop crashed:", err);
