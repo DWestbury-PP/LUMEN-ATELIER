@@ -11,7 +11,7 @@ Three Claude models run a working atelier: the **Muse** writes a concept brief, 
 rendered frames* — approving, or sending the work back with notes — until the piece
 earns its place in the gallery.
 
-`Claude Haiku · Sonnet · Opus` · `WebGL2 / GLSL ES 3.00` · `React` · `Node/TS` · `Postgres` · `Docker Compose` · `Railway`
+`Claude Sonnet 5 · Opus 5` · `WebGL2 / GLSL ES 3.00` · `React` · `Node/TS` · `Postgres` · `Docker Compose` · `Railway`
 
 </div>
 
@@ -39,9 +39,9 @@ a new piece on a fixed cadence. Its first works — including *Alchemy of the La
 
 | Role | Default model | Job |
 |---|---|---|
-| **The Muse** | `claude-haiku-4-5` | Writes the concept brief: one idea, a disciplined palette, concrete motion. Grounds briefs in real art-history research via Tavily when a key is present. |
-| **The Artisan** | `claude-sonnet-5` | Realizes the brief as a GLSL ES 3.00 shader, in the demoscene tradition. Streams its work token-by-token to the live studio floor. Repairs its own compile errors. |
-| **The Critic** | `claude-opus-4-8` | The gate. Examines 4 rendered frames (t = 0.8s → 15s), scores composition / color / motion / brief-fidelity, and issues a verdict: approve, revise with concrete notes, or — on the final iteration — decline. |
+| **The Muse** | `claude-sonnet-5` | Writes the concept brief: one idea, a disciplined palette, concrete motion. Grounds briefs in real art-history research via Tavily when a key is present. |
+| **The Artisan** | `claude-opus-5` | Realizes the brief as a GLSL ES 3.00 shader, in the demoscene tradition. Streams its work token-by-token to the live studio floor. Repairs its own compile errors. |
+| **The Critic** | `claude-opus-5` | The gate. Examines 4 rendered frames (t = 0.8s → 15s), scores composition / color / motion / brief-fidelity, and issues a verdict: approve, revise with concrete notes, or — on the final iteration — decline. |
 
 The models are configurable via environment; recast the ensemble however you like.
 

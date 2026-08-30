@@ -5,9 +5,13 @@ export const config = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   tavilyApiKey: process.env.TAVILY_API_KEY || "",
   models: {
-    muse: process.env.MUSE_MODEL || "claude-haiku-4-5",
-    artisan: process.env.ARTISAN_MODEL || "claude-sonnet-5",
-    critic: process.env.CRITIC_MODEL || "claude-opus-4-8",
+    // Quality over quantity (2026-08-29): the cadence dropped to a few pieces
+    // a day, and the savings bought a stronger ensemble — Sonnet 5 conceives,
+    // Opus 5 paints and judges. Opus 5 costs the same as 4.8, so the Critic's
+    // sharper eye came free.
+    muse: process.env.MUSE_MODEL || "claude-sonnet-5",
+    artisan: process.env.ARTISAN_MODEL || "claude-opus-5",
+    critic: process.env.CRITIC_MODEL || "claude-opus-5",
   },
   // Thinking depth for the Artisan. "medium" is deliberate: drafts are cheap
   // in this studio (the Critic catches problems), deliberation is not.
