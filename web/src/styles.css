@@ -298,9 +298,13 @@ button { font-family: inherit; }
 
 /* ── Studio floor ── */
 
-.floor { display: grid; grid-template-columns: 1.15fr 1fr; gap: 32px; margin-top: 40px; align-items: start; }
+/* The two columns stretch to the same height; the stage is a flex stack so
+   the codepane can absorb the slack and end flush with the feed's bottom. */
+.floor { display: grid; grid-template-columns: 1.15fr 1fr; gap: 32px; margin-top: 40px; align-items: stretch; }
 @media (max-width: 980px) { .floor { grid-template-columns: 1fr; } }
 
+.floor .stage { display: flex; flex-direction: column; min-height: 0; }
+.floor .stage .frame, .floor .stage-caption, .floor .activity { flex-shrink: 0; }
 .floor .stage .frame { aspect-ratio: 16/9; background: #000; border: 1px solid var(--gold-soft); overflow: hidden; }
 .floor .stage canvas { display: block; width: 100%; height: 100%; }
 .stage-caption { margin-top: 10px; font-size: 12px; color: var(--ink-faint); letter-spacing: 0.1em; display: flex; justify-content: space-between; }
@@ -314,7 +318,10 @@ button { font-family: inherit; }
   font-size: 11px;
   line-height: 1.6;
   color: #8fa88f;
-  height: 260px;
+  /* Grows to match the feed column's height (78vh cap) so live inspection of
+     the model's thinking gets as much room as the critique feed. */
+  flex: 1 1 0;
+  min-height: 260px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -596,7 +603,7 @@ footer.colophon a { color: var(--ink-dim); border-bottom: 1px solid var(--gold-f
 
   .floor { gap: 22px; margin-top: 24px; }
   .feed { max-height: none; overflow-y: visible; padding-right: 0; }
-  .codepane { height: 190px; font-size: 10.5px; }
+  .codepane { flex: none; height: 190px; min-height: 0; font-size: 10.5px; }
 
   .modal { padding: 26px 20px; }
   .patron-row { flex-wrap: wrap; }
