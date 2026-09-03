@@ -59,6 +59,9 @@ export function buildServer() {
       maxIterations: config.maxIterations,
       phaseSince: state.phaseSince,
       autoCreateIntervalMin: config.autoCreateIntervalMin,
+      billing: state.billingHoldUntil && Date.now() < state.billingHoldUntil
+        ? { paused: true, retryAt: new Date(state.billingHoldUntil).toISOString() }
+        : null,
       ...dbBits,
     });
   });

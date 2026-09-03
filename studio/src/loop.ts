@@ -9,11 +9,13 @@ import { q, type PieceRow } from "./db.js";
 import { emitStudio } from "./bus.js";
 import { renderShader } from "./renderer.js";
 import { maybeResearch } from "./tavily.js";
-import { muse, artisan, critic, finalize, resetUsageTally, summarizeUsage, type Brief, type Critique } from "./agents.js";
+import { muse, artisan, critic, finalize, isBillingError, resetUsageTally, summarizeUsage, type Brief, type Critique } from "./agents.js";
 import { ensurePoster } from "./posters.js";
 import { cleanTags } from "./tags.js";
 
 const COMPILE_RETRIES = 3;
+// How long the studio rests after learning the API account is out of credits.
+const BILLING_RETRY_MIN = Number(process.env.BILLING_RETRY_MIN || 30);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface StudioState {
@@ -22,6 +24,8 @@ export interface StudioState {
   currentPieceId: number | null;
   phase: string; // idle | brief | drafting | rendering | critique | finalizing
   phaseSince: string;
+  /** Epoch ms until which the loop rests because the API account is out of credits. */
+  billingHoldUntil: number | null;
 }
 
 export const state: StudioState = {
@@ -30,6 +34,7 @@ export const state: StudioState = {
   currentPieceId: null,
   phase: "idle",
   phaseSince: new Date().toISOString(),
+  billingHoldUntil: null,
 };
 
 function setPhase(phase: string, pieceId: number | null = state.currentPieceId) {
@@ -205,6 +210,10 @@ export async function studioLoop(): Promise<void> {
   for (;;) {
     try {
       if (!hasKey()) { await sleep(30_000); continue; }
+      if (state.billingHoldUntil) {
+        if (Date.now() < state.billingHoldUntil) { await sleep(30_000); continue; }
+        state.billingHoldUntil = null; // the rest is over — try again
+      }
       let piece = await q.nextQueued();
       if (!piece) piece = await maybeAutoCreate();
       if (!piece) {
@@ -216,11 +225,30 @@ export async function studioLoop(): Promise<void> {
       await composePiece(piece);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      emitStudio("studio.error", state.currentPieceId, { message: msg.slice(0, 500) });
-      if (state.currentPieceId) {
-        await q.setStatus(state.currentPieceId, "error").catch(() => {});
+      if (isBillingError(err)) {
+        // Out of credits: rest instead of erroring. A commission — or any
+        // piece that already earned a brief or drafts — returns to the queue
+        // and survives the outage; a self-directed stub that never got a
+        // brief is simply withdrawn, so no slot is burned and the studio
+        // retries on the billing clock, not the 8-hour cadence.
+        state.billingHoldUntil = Date.now() + BILLING_RETRY_MIN * 60_000;
+        const retryAt = new Date(state.billingHoldUntil).toISOString();
+        emitStudio("studio.billing", null, {
+          message: `The studio's API account is out of credits. The ensemble rests and will try again in ${BILLING_RETRY_MIN} minutes.`,
+          retryAt,
+        });
+        if (state.currentPieceId) {
+          const id = state.currentPieceId;
+          const requeued = await q.requeueForBilling(id).catch(() => false);
+          if (!requeued) await q.deleteEmptyStub(id).catch(() => {});
+        }
+      } else {
+        emitStudio("studio.error", state.currentPieceId, { message: msg.slice(0, 500) });
+        if (state.currentPieceId) {
+          await q.setStatus(state.currentPieceId, "error").catch(() => {});
+        }
+        await sleep(20_000); // back off (rate limits, transient API errors)
       }
-      await sleep(20_000); // back off (rate limits, transient API errors)
     } finally {
       state.currentPieceId = null;
       // The idle-poll `continue` routes through here too — only announce

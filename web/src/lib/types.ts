@@ -71,6 +71,8 @@ export interface StudioStatus {
   queueLength: number;
   models: { muse: string; artisan: string; critic: string };
   maxIterations: number;
+  /** Present and paused when the API account is out of credits. */
+  billing?: { paused: boolean; retryAt: string } | null;
 }
 
 export interface StudioEvent {

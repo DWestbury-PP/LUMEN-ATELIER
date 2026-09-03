@@ -161,6 +161,28 @@ export const q = {
     return r.rows;
   },
 
+  // Billing outage: a piece with a theme (commission) or an earned brief
+  // goes back to the queue to survive the outage. Returns false for a
+  // brief-less self-directed stub, which the caller withdraws instead.
+  async requeueForBilling(id: number): Promise<boolean> {
+    const r = await pool.query(
+      "update pieces set status = 'queued' where id = $1 and (theme is not null or brief is not null)",
+      [id]
+    );
+    return (r.rowCount ?? 0) > 0;
+  },
+
+  // Withdraw a self-directed piece that never got a brief — nothing was
+  // spent and nothing is lost. Guarded so it can never eat real work.
+  async deleteEmptyStub(id: number): Promise<void> {
+    const r = await pool.query(
+      `delete from pieces where id = $1 and theme is null and brief is null
+         and not exists (select 1 from iterations where piece_id = $1)`,
+      [id]
+    );
+    if ((r.rowCount ?? 0) > 0) await pool.query("delete from events where piece_id = $1", [id]);
+  },
+
   // Hard delete: the piece, its drafts, and its event trail.
   async deletePiece(id: number): Promise<boolean> {
     await pool.query("delete from events where piece_id = $1", [id]);
