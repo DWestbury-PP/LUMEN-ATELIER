@@ -91,7 +91,9 @@ export default function Gallery({ onCommission }: { onCommission: () => void }) 
           ? "Reaching the studio…"
           : !status.hasKey
             ? "The ensemble is asleep (no API key configured). The gallery remains open."
-            : PHASE_COPY[status.phase] ?? status.phase}
+            : status.billing?.paused
+              ? "The ensemble is resting — the studio's API credits have run dry. The gallery remains open."
+              : PHASE_COPY[status.phase] ?? status.phase}
         {status && status.queueLength > 0 && <span>· {status.queueLength} commission{status.queueLength > 1 ? "s" : ""} in the book</span>}
         <Link to="/studio">Watch the studio floor →</Link>
       </div>

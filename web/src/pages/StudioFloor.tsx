@@ -88,6 +88,8 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
       return { ...base, who: "studio", label: "Studio", text: "Rendering failed for this draft; the studio abandons it and tries fresh." };
     case "piece.parked":
       return { ...base, who: "studio", label: "Studio", link: true, text: "The studio's eyes (the renderer) were unreachable — the piece is parked with its drafts intact. The curator can send it back or hang a draft." };
+    case "studio.billing":
+      return { ...base, who: "studio", label: "Studio", text: String(p.message ?? "The studio's API account is out of credits — the ensemble rests until it is topped off.") };
     case "studio.error":
       return { ...base, who: "studio", label: "Studio", text: `A disturbance in the studio: ${p.message}` };
     case "studio.no_key":

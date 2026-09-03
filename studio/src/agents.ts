@@ -128,6 +128,13 @@ function textOrThrow(msg: Anthropic.Message, label: string): string {
   return text;
 }
 
+// A 400 telling us the account is out of API credits — an operational pause,
+// not a fault in the work. The loop treats it as its own state: no error
+// stubs, no burned cadence slots, a patient retry.
+export function isBillingError(err: unknown): boolean {
+  return err instanceof Anthropic.APIError && /credit balance is too low/i.test(err.message);
+}
+
 function schemaFormat(schema: Record<string, unknown>) {
   return { format: { type: "json_schema" as const, schema } };
 }
