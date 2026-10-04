@@ -23,6 +23,9 @@ export const config = {
   autoCreate: (process.env.AUTO_CREATE || "true").toLowerCase() === "true",
   autoCreateIntervalMin: Number(process.env.AUTO_CREATE_INTERVAL_MIN || 120),
   maxIterations: Math.max(1, Number(process.env.MAX_ITERATIONS || 4)),
+  // When the revision rounds run out without an outright approval, the
+  // strongest draft hangs if the Critic scored it at least this (overall).
+  admitFloor: Number(process.env.ADMIT_FLOOR || 6.5),
   // Frames the Critic sees, and their timestamps (seconds into the piece).
   frame: { width: 512, height: 288, times: [0.8, 3.5, 8.2, 15.0] },
 

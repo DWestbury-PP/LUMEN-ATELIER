@@ -82,8 +82,15 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
     }
     case "piece.approved":
       return { ...base, who: "studio", label: "Studio", link: true, text: `ACCEPTED INTO THE COLLECTION — “${p.title}” after ${p.iterations} draft${p.iterations > 1 ? "s" : ""}.` };
+    case "studio.best_of":
+      return {
+        ...base, who: "studio", label: "Studio",
+        text: p.hung
+          ? `No draft earned outright approval. The studio hangs its strongest, draft ${(p.iteration ?? 0) + 1} (overall ${p.overall}).`
+          : `No draft earned approval; the strongest, draft ${(p.iteration ?? 0) + 1}, scored ${p.overall} against the gallery's floor of ${p.floor}.`,
+      };
     case "piece.declined":
-      return { ...base, who: "studio", label: "Studio", link: true, text: `The Critic declined the piece after ${p.iterations} drafts. The studio moves on.` };
+      return { ...base, who: "studio", label: "Studio", link: true, text: `No draft reached the gallery's bar after ${p.iterations} drafts. The studio moves on.` };
     case "piece.render_failed":
       return { ...base, who: "studio", label: "Studio", text: "Rendering failed for this draft; the studio abandons it and tries fresh." };
     case "piece.parked":

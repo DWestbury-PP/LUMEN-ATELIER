@@ -151,9 +151,9 @@ export const q = {
   },
 
   // What's already hanging — fed to the Muse so it doesn't repeat itself.
-  async recentApprovedSummaries(limit = 12): Promise<{ title: string | null; reference: string | null; palette: unknown; mood: string | null }[]> {
+  async recentApprovedSummaries(limit = 12): Promise<{ title: string | null; reference: string | null; palette: unknown; mood: string | null; tags: string[] | null }[]> {
     const r = await pool.query(
-      `select title, brief->>'reference' as reference, brief->'palette' as palette, brief->>'mood' as mood
+      `select title, brief->>'reference' as reference, brief->'palette' as palette, brief->>'mood' as mood, tags
        from pieces where status = 'approved' and glsl is not null
        order by coalesce(approved_at, created_at) desc limit $1`,
       [limit]

@@ -9,7 +9,7 @@ import { q, type PieceRow } from "./db.js";
 import { emitStudio } from "./bus.js";
 import { renderShader } from "./renderer.js";
 import { maybeResearch } from "./tavily.js";
-import { muse, artisan, critic, finalize, isBillingError, resetUsageTally, summarizeUsage, type Brief, type Critique } from "./agents.js";
+import { muse, artisan, critic, finalize, bestAttempt, isBillingError, resetUsageTally, summarizeUsage, type Brief, type Critique } from "./agents.js";
 import { ensurePoster } from "./posters.js";
 import { cleanTags } from "./tags.js";
 
@@ -71,7 +71,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
   }
 
   // 2 — Draft / render / critique loop
-  const attempts: { critique: Critique; glsl: string }[] = [];
+  const attempts: { critique: Critique; glsl: string; idx?: number }[] = [];
   const critiqueHistory: Critique[] = [];
   const idxBase = await q.nextIterationIdx(id);
   if (idxBase > 0) {
@@ -79,6 +79,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
     if (last?.critique) attempts.push({ critique: last.critique as Critique, glsl: last.glsl });
   }
   let approvedGlsl: string | null = null;
+  let hungCritique: Critique | undefined;
   let iterationsUsed = 0;
   let parked = false;
 
@@ -143,8 +144,6 @@ async function composePiece(piece: PieceRow): Promise<void> {
     const verdict = await critic({
       brief,
       frames: render.frames,
-      iteration: iter,
-      maxIterations: config.maxIterations,
       artisanNotes: draft.notes,
       curatorNote,
     });
@@ -157,17 +156,33 @@ async function composePiece(piece: PieceRow): Promise<void> {
 
     if (verdict.verdict === "approve") {
       approvedGlsl = draft.glsl;
+      hungCritique = verdict;
       break;
     }
-    if (verdict.verdict === "decline") break;
-    attempts.push({ critique: verdict, glsl: draft.glsl });
+    attempts.push({ critique: verdict, glsl: draft.glsl, idx: idxBase + iter });
+  }
+
+  // Out of revision rounds without an outright approval: the studio hangs
+  // its strongest draft of this run if it clears the floor. Revisions can
+  // drift from the brief, so the last draft is not always the best one.
+  if (!approvedGlsl && !parked) {
+    const ours = attempts.filter((a) => a.idx !== undefined);
+    if (ours.length > 0) {
+      const best = bestAttempt(ours);
+      const overall = best.critique.scores.overall;
+      emitStudio("studio.best_of", id, { iteration: best.idx, overall, floor: config.admitFloor, hung: overall >= config.admitFloor });
+      if (overall >= config.admitFloor) {
+        approvedGlsl = best.glsl;
+        hungCritique = best.critique;
+      }
+    }
   }
 
   // 4 — Finalize or decline, and file the ledger
   if (approvedGlsl) {
     setPhase("finalizing");
     const existingTitles = (await q.recentApprovedSummaries(20).catch(() => [])).map((w) => w.title);
-    const { title, statement } = await finalize({ brief, glsl: approvedGlsl, critiqueHistory, existingTitles });
+    const { title, statement } = await finalize({ brief, glsl: approvedGlsl, critiqueHistory, hungCritique, existingTitles });
     await q.approvePiece(id, approvedGlsl, title, statement, iterationsUsed);
     emitStudio("piece.approved", id, { title, statement, iterations: iterationsUsed });
     void ensurePoster(id, approvedGlsl).catch((err) => console.warn(`[posters] piece ${id}: ${String(err)}`));

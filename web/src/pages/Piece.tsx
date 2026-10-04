@@ -143,7 +143,7 @@ export default function PiecePage() {
           <h1>{piece.title ?? "Untitled"}</h1>
           {piece.status === "declined" && (
             <p className="statement" style={{ color: "var(--decline)" }}>
-              The Critic declined this piece — it never entered the collection. Its process
+              No draft reached the gallery's bar — it never entered the collection. Its process
               remains on record below.
             </p>
           )}
@@ -246,6 +246,7 @@ export default function PiecePage() {
             <div className="iteration" key={it.idx}>
               <header>
                 <span className="idx">Draft {it.idx + 1}</span>
+                {piece.status === "approved" && it.glsl === piece.glsl && <span className="verdict-label approve">hangs</span>}
                 {it.critique && (
                   <span className={`verdict-label ${it.critique.verdict}`}>
                     critic&thinsp;—&thinsp;{it.critique.verdict}
