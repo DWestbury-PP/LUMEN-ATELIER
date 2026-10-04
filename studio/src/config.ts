@@ -1,3 +1,5 @@
+type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
 export const config = {
   port: Number(process.env.PORT || 8181),
   databaseUrl: process.env.DATABASE_URL || "postgres://lumen:lumen@localhost:5432/lumen",
@@ -5,17 +7,19 @@ export const config = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   tavilyApiKey: process.env.TAVILY_API_KEY || "",
   models: {
-    // Quality over quantity (2026-08-29): the cadence dropped to a few pieces
-    // a day, and the savings bought a stronger ensemble — Sonnet 5 conceives,
-    // Opus 5 paints and judges. Opus 5 costs the same as 4.8, so the Critic's
-    // sharper eye came free.
-    muse: process.env.MUSE_MODEL || "claude-sonnet-5",
-    artisan: process.env.ARTISAN_MODEL || "claude-opus-5",
-    critic: process.env.CRITIC_MODEL || "claude-opus-5",
+    // Sonnet 5.5 conceives, Opus 5.5 paints and judges. Opus 5.5 is cheaper
+    // per token than Opus 5 and reads images markedly better — the Critic's
+    // eye is the studio's quality ceiling.
+    muse: process.env.MUSE_MODEL || "claude-sonnet-5-5",
+    artisan: process.env.ARTISAN_MODEL || "claude-opus-5-5",
+    critic: process.env.CRITIC_MODEL || "claude-opus-5-5",
   },
   // Thinking depth for the Artisan. "medium" is deliberate: drafts are cheap
   // in this studio (the Critic catches problems), deliberation is not.
-  artisanEffort: (process.env.ARTISAN_EFFORT || "medium") as "low" | "medium" | "high",
+  artisanEffort: (process.env.ARTISAN_EFFORT || "medium") as Effort,
+  // The Critic is the gate, so it judges at "high" — set explicitly, because
+  // Opus 5.5 defaults to "medium".
+  criticEffort: (process.env.CRITIC_EFFORT || "high") as Effort,
   autoCreate: (process.env.AUTO_CREATE || "true").toLowerCase() === "true",
   autoCreateIntervalMin: Number(process.env.AUTO_CREATE_INTERVAL_MIN || 120),
   maxIterations: Math.max(1, Number(process.env.MAX_ITERATIONS || 4)),
