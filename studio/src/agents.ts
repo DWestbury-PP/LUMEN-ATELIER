@@ -43,6 +43,8 @@ export interface ArtisanDraft {
 // are sticker $/MTok (input, output) — update if Anthropic pricing moves.
 
 const PRICES: Record<string, { in: number; out: number }> = {
+  "claude-sonnet-5-5": { in: 2, out: 10 },
+  "claude-opus-5-5": { in: 4, out: 20 },
   "claude-haiku-4-5": { in: 1, out: 5 },
   "claude-sonnet-5": { in: 2, out: 10 },
   "claude-opus-5": { in: 5, out: 25 },
@@ -198,13 +200,14 @@ export async function tagPiece(p: { title: string | null; statement: string | nu
     b.palette ? `Palette: ${JSON.stringify(b.palette)}` : "",
   ].filter(Boolean).join("\n");
   const msg = await client.messages.create({
-    model: "claude-haiku-4-5",
-    max_tokens: 400,
+    model: config.models.muse,
+    max_tokens: 4000,
+    thinking: { type: "adaptive" },
     system: "You catalogue pieces for an art gallery of real-time generative shader art. Given a piece's title, statement, and brief, choose 3 to 6 tags from the fixed vocabulary that best describe its mood, motion, palette, form, and technique. Choose only terms that clearly apply.",
-    output_config: schemaFormat(TAG_SCHEMA),
+    output_config: { ...schemaFormat(TAG_SCHEMA), effort: "low" },
     messages: [{ role: "user", content: text }],
   });
-  record("claude-haiku-4-5", msg.usage);
+  record(config.models.muse, msg.usage);
   return cleanTags(parseJson<{ tags: string[] }>(textOrThrow(msg, "Tagger"), "Tagger").tags);
 }
 
@@ -257,8 +260,7 @@ export async function muse(
   content.push({ type: "text", text: parts.join("\n\n") });
 
   // A brief is ~600 tokens of JSON; the rest of the budget is headroom for
-  // adaptive thinking, which shares max_tokens. (2000 was enough for Haiku
-  // 4.5 with thinking off; on Sonnet 5 it truncated briefs mid-sentence.)
+  // adaptive thinking, which shares max_tokens.
   const msg = await client.messages.create({
     model: config.models.muse,
     max_tokens: 8000,
@@ -376,7 +378,7 @@ export async function artisan(
     throw new Error("Artisan ran out of tokens mid-shader (truncated draft discarded)");
   }
   if (msg.stop_reason === "refusal") {
-    // Opus 5 can decline a request outright (HTTP 200, no shader). Unlikely
+    // Opus can decline a request outright (HTTP 200, no shader). Unlikely
     // for light-painting, but never mistake an empty answer for a draft.
     throw new Error("Artisan declined the brief (stop_reason=refusal)");
   }
@@ -523,7 +525,7 @@ export async function critic(args: {
     max_tokens: 16000,
     thinking: { type: "adaptive" },
     system: CRITIC_SYSTEM,
-    output_config: schemaFormat(CRITIC_SCHEMA),
+    output_config: { ...schemaFormat(CRITIC_SCHEMA), effort: config.criticEffort },
     messages: [{ role: "user", content }],
   });
   record(config.models.critic, msg.usage);

@@ -1,5 +1,5 @@
 // Tag backfill: pieces from before the vocabulary existed get their tags
-// from a cheap Haiku pass over title, statement, and brief — one at a time,
+// from a low-effort pass over title, statement, and brief — one at a time,
 // only while the studio is idle. Pennies for the whole collection.
 import { q } from "./db.js";
 import { tagPiece } from "./agents.js";

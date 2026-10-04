@@ -11,7 +11,7 @@ Three Claude models run a working atelier: the **Muse** writes a concept brief, 
 rendered frames* — approving, or sending the work back with notes — until the piece
 earns its place in the gallery.
 
-`Claude Sonnet 5 · Opus 5` · `WebGL2 / GLSL ES 3.00` · `React` · `Node/TS` · `Postgres` · `Docker Compose` · `Railway`
+`Claude Sonnet 5.5 · Opus 5.5` · `WebGL2 / GLSL ES 3.00` · `React` · `Node/TS` · `Postgres` · `Docker Compose` · `Railway`
 
 </div>
 
@@ -39,9 +39,9 @@ a new piece on a fixed cadence. Its first works — including *Alchemy of the La
 
 | Role | Default model | Job |
 |---|---|---|
-| **The Muse** | `claude-sonnet-5` | Writes the concept brief: one idea, a disciplined palette, concrete motion. Grounds briefs in real art-history research via Tavily when a key is present. |
-| **The Artisan** | `claude-opus-5` | Realizes the brief as a GLSL ES 3.00 shader, in the demoscene tradition. Streams its work token-by-token to the live studio floor. Repairs its own compile errors. |
-| **The Critic** | `claude-opus-5` | The gate. Examines 4 rendered frames (t = 0.8s → 15s), scores composition / color / motion / brief-fidelity, and issues a verdict: approve, revise with concrete notes, or — on the final iteration — decline. |
+| **The Muse** | `claude-sonnet-5-5` | Writes the concept brief: one idea, a disciplined palette, concrete motion. Grounds briefs in real art-history research via Tavily when a key is present. |
+| **The Artisan** | `claude-opus-5-5` | Realizes the brief as a GLSL ES 3.00 shader, in the demoscene tradition. Streams its work token-by-token to the live studio floor. Repairs its own compile errors. |
+| **The Critic** | `claude-opus-5-5` | The gate. Examines 4 rendered frames (t = 0.8s → 15s), scores composition / color / motion / brief-fidelity, and issues a verdict: approve, revise with concrete notes, or — on the final iteration — decline. |
 
 The models are configurable via environment; recast the ensemble however you like.
 
@@ -138,6 +138,7 @@ hand-written **calibration pieces** so the pipeline is visible end-to-end.
 | `MUSE_MODEL` / `ARTISAN_MODEL` / `CRITIC_MODEL` | Recast the ensemble. |
 | `AUTO_CREATE` / `AUTO_CREATE_INTERVAL_MIN` | Self-commissioning cadence (default: every 2 hours, ~12 pieces/day). |
 | `ARTISAN_EFFORT` | Reasoning effort for the Artisan (default `medium` — keeps it painting, not pondering). |
+| `CRITIC_EFFORT` | Reasoning effort for the Critic (default `high` — the gate judges carefully). |
 | `MAX_ITERATIONS` | Revision rounds before the Critic's final ruling (default 4). |
 
 ## The shader contract
@@ -178,7 +179,7 @@ before touching the rendering path; it has caught real bugs.
   `CRITIC_MODEL` override). Prices for the cost ledger live in `studio/src/agents.ts`.
 - **Backfills run at boot** while the studio is idle: posters for approved pieces
   without one (`studio/src/posters.ts`), tags for pieces without any
-  (`studio/src/tagging.ts`, a cheap Haiku pass). Both are idempotent.
+  (`studio/src/tagging.ts`, a low-effort Muse-model pass). Both are idempotent.
 
 ## Credits
 

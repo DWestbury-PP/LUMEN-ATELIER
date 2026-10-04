@@ -38,10 +38,11 @@ services:
       RENDERER_URL: http://renderer:8282
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
-      MUSE_MODEL: ${MUSE_MODEL:-claude-haiku-4-5}
-      ARTISAN_MODEL: ${ARTISAN_MODEL:-claude-sonnet-5}
+      MUSE_MODEL: ${MUSE_MODEL:-claude-sonnet-5-5}
+      ARTISAN_MODEL: ${ARTISAN_MODEL:-claude-opus-5-5}
       ARTISAN_EFFORT: ${ARTISAN_EFFORT:-medium}
-      CRITIC_MODEL: ${CRITIC_MODEL:-claude-opus-4-8}
+      CRITIC_MODEL: ${CRITIC_MODEL:-claude-opus-5-5}
+      CRITIC_EFFORT: ${CRITIC_EFFORT:-high}
       AUTO_CREATE: ${AUTO_CREATE:-true}
       AUTO_CREATE_INTERVAL_MIN: ${AUTO_CREATE_INTERVAL_MIN:-120}
       MAX_ITERATIONS: ${MAX_ITERATIONS:-4}
