@@ -89,6 +89,18 @@ function toFeedItem(ev: RawEvent): FeedItem | null {
           ? `No draft earned outright approval. The studio hangs its strongest, draft ${(p.iteration ?? 0) + 1} (overall ${p.overall}).`
           : `No draft earned approval; the strongest, draft ${(p.iteration ?? 0) + 1}, scored ${p.overall} against the gallery's floor of ${p.floor}.`,
       };
+    case "studio.paused":
+      return { ...base, who: "studio", label: "Studio", text: "The studio is resting. No new pieces will start until it resumes." };
+    case "studio.resumed":
+      return { ...base, who: "studio", label: "Studio", text: "The studio is back at work." };
+    case "studio.spend_cap":
+      return { ...base, who: "studio", label: "Studio", text: "The studio has reached its daily budget and rests until it frees up." };
+    case "studio.spend_resumed":
+      return { ...base, who: "studio", label: "Studio", text: "The daily budget has freed up; the studio resumes." };
+    case "piece.resumed":
+      return { ...base, who: "studio", label: "Studio", text: p.remaining > 0
+        ? `Resuming after an interruption: ${p.drafts} draft${p.drafts === 1 ? "" : "s"} already made, ${p.remaining} round${p.remaining === 1 ? "" : "s"} left.`
+        : `Resuming after an interruption with no rounds left; the studio decides on the ${p.drafts} drafts it has.` };
     case "piece.declined":
       return { ...base, who: "studio", label: "Studio", link: true, text: `No draft reached the gallery's bar after ${p.iterations} drafts. The studio moves on.` };
     case "piece.render_failed":

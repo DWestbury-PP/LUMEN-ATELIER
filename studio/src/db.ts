@@ -71,6 +71,13 @@ export async function ensureSchema(): Promise<void> {
     alter table pieces add column if not exists poster bytea;
     alter table pieces add column if not exists poster_at timestamptz;
     alter table pieces add column if not exists tags text[];
+    alter table pieces add column if not exists round_budget int;
+    alter table pieces add column if not exists ledger_at timestamptz;
+    create table if not exists studio_settings (
+      key           text primary key,
+      value         jsonb not null,
+      updated_at    timestamptz not null default now()
+    );
     create index if not exists idx_pieces_tags on pieces using gin(tags);
     create index if not exists idx_pieces_status on pieces(status);
     create index if not exists idx_iterations_piece on iterations(piece_id);
@@ -107,6 +114,9 @@ export interface PieceRow {
   has_poster?: boolean;
   poster_at?: string | null;
   tags?: string[] | null;
+  ledger?: unknown;
+  /** Total drafts this piece may reach; null means config.maxIterations. */
+  round_budget?: number | null;
 }
 
 // Gallery card columns: metadata, tags, and a poster pointer. No shader
@@ -229,11 +239,14 @@ export const q = {
   // ── Curator's prerogative ──
 
   // Send a finished piece back to the studio, optionally with direction.
-  async curatorReiterate(id: number, note: string | null): Promise<PieceRow | null> {
+  // Sending a piece back grants a fresh allowance of `rounds` drafts on top
+  // of the drafts it already has.
+  async curatorReiterate(id: number, note: string | null, rounds: number): Promise<PieceRow | null> {
     const r = await pool.query(
-      `update pieces set status = 'queued', curator_note = $2
+      `update pieces set status = 'queued', curator_note = $2,
+         round_budget = (select coalesce(max(idx), -1) + 1 from iterations where piece_id = $1) + $3
        where id = $1 and status in ('approved','declined','error','rejected') returning *`,
-      [id, note]
+      [id, note, rounds]
     );
     return r.rows[0] ?? null;
   },
@@ -284,6 +297,28 @@ export const q = {
     return r.rows[0].next;
   },
 
+  async critiquedIterationsFrom(pieceId: number, fromIdx: number): Promise<{ idx: number; glsl: string; critique: unknown }[]> {
+    const r = await pool.query(
+      `select idx, glsl, critique from iterations
+       where piece_id = $1 and idx >= $2 and critique is not null order by idx asc`,
+      [pieceId, fromIdx]
+    );
+    return r.rows;
+  },
+
+  async getSetting<T>(key: string): Promise<T | null> {
+    const r = await pool.query("select value from studio_settings where key = $1", [key]);
+    return (r.rows[0]?.value as T) ?? null;
+  },
+
+  async setSetting(key: string, value: unknown): Promise<void> {
+    await pool.query(
+      `insert into studio_settings (key, value) values ($1, $2)
+       on conflict (key) do update set value = excluded.value, updated_at = now()`,
+      [key, JSON.stringify(value)]
+    );
+  },
+
   async lastCritiquedIteration(pieceId: number): Promise<{ glsl: string; critique: unknown } | null> {
     const r = await pool.query(
       `select glsl, critique from iterations
@@ -294,14 +329,17 @@ export const q = {
   },
 
   async setPieceLedger(id: number, ledger: unknown): Promise<void> {
-    await pool.query("update pieces set ledger = $2 where id = $1", [id, JSON.stringify(ledger)]);
+    await pool.query("update pieces set ledger = $2, ledger_at = now() where id = $1", [id, JSON.stringify(ledger)]);
   },
 
-  // Rolling 24h spend across all pieces (auto + commissioned).
+  // Rolling 24h spend across all pieces (auto + commissioned), by when each
+  // ledger last grew. A piece sent back days later counts its whole ledger
+  // again — an over-count, which is the safe direction for the spend cap.
   async spend24h(): Promise<{ cost_usd: number; pieces: number }> {
     const r = await pool.query(
       `select coalesce(sum((ledger->>'cost_usd')::numeric), 0)::float as cost, count(*)::int as n
-       from pieces where ledger is not null and created_at > now() - interval '24 hours'`
+       from pieces where ledger is not null
+         and coalesce(ledger_at, created_at) > now() - interval '24 hours'`
     );
     return { cost_usd: Math.round(r.rows[0].cost * 100) / 100, pieces: r.rows[0].n };
   },

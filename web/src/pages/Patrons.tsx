@@ -14,6 +14,15 @@ interface Proposal {
   submitter_name: string | null;
 }
 
+interface StudioControl {
+  paused: boolean;
+  spendHold: boolean;
+  dailySpendCap: number;
+  spend24h: { cost_usd: number; pieces: number };
+  phase: string;
+  currentPieceId: number | null;
+}
+
 interface AdminUser {
   id: number;
   email: string;
@@ -27,17 +36,33 @@ export default function Patrons() {
   const { user, loaded } = useAuth();
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [users, setUsers] = useState<AdminUser[] | null>(null);
+  const [studio, setStudio] = useState<StudioControl | null>(null);
+  const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [p, u] = await Promise.all([
+    const [p, u, s] = await Promise.all([
       fetch("/api/admin/proposals"),
       fetch("/api/admin/users"),
+      fetch("/api/admin/studio"),
     ]);
-    if (!p.ok || !u.ok) { setError("Not authorized."); return; }
+    if (!p.ok || !u.ok || !s.ok) { setError("Not authorized."); return; }
     setProposals(await p.json());
     setUsers(await u.json());
+    setStudio(await s.json());
   }, []);
+
+  async function setPaused(paused: boolean) {
+    setToggling(true);
+    const res = await fetch("/api/admin/studio", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paused }),
+    });
+    if (!res.ok) setError(`Could not ${paused ? "pause" : "resume"} the studio (${res.status}).`);
+    await load();
+    setToggling(false);
+  }
 
   useEffect(() => {
     if (loaded && user?.role === "admin") {
@@ -71,6 +96,34 @@ export default function Patrons() {
       </section>
 
       {error && <div className="empty">{error}</div>}
+
+      <div className="section-label">The studio</div>
+      {studio && (
+        <div className="patron-row">
+          <div className="patron-id" style={{ flex: 1 }}>
+            <strong>
+              {studio.paused
+                ? "Paused — no new pieces will start"
+                : studio.spendHold
+                  ? "Holding — the daily spend cap is reached"
+                  : "Running"}
+            </strong>
+            <span>
+              ${studio.spend24h.cost_usd.toFixed(2)} spent in the last 24 hours
+              {studio.dailySpendCap > 0 ? ` of a $${studio.dailySpendCap.toFixed(2)} daily cap` : " (no daily cap)"}
+              {studio.currentPieceId && studio.phase !== "idle"
+                ? ` · piece ${studio.currentPieceId} is in progress and will finish${studio.paused ? " before the pause takes hold" : ""}`
+                : ""}
+              . Paused or capped, queued commissions wait their turn.
+            </span>
+          </div>
+          <div className="patron-actions">
+            {studio.paused
+              ? <button className="btn solid" disabled={toggling} onClick={() => setPaused(false)}>Resume</button>
+              : <button className="btn" disabled={toggling} onClick={() => setPaused(true)}>Pause</button>}
+          </div>
+        </div>
+      )}
 
       <div className="section-label">
         Proposals awaiting review {proposals && proposals.length > 0 && `(${proposals.length})`}

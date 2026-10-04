@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import { config, hasKey } from "./config.js";
 import { q } from "./db.js";
 import { onStudio, emitStudio } from "./bus.js";
-import { state } from "./loop.js";
+import { state, setPaused } from "./loop.js";
 import { ensurePoster } from "./posters.js";
 import { renderShader } from "./renderer.js";
 import { finalize, type Brief, type Critique } from "./agents.js";
@@ -62,6 +62,8 @@ export function buildServer() {
       billing: state.billingHoldUntil && Date.now() < state.billingHoldUntil
         ? { paused: true, retryAt: new Date(state.billingHoldUntil).toISOString() }
         : null,
+      paused: state.paused,
+      spendHold: state.spendHold,
       ...dbBits,
     });
   });
@@ -120,6 +122,29 @@ export function buildServer() {
     res.json({ ...publicUser(target), requested_at: target.requested_at, approved_at: target.approved_at });
   });
 
+  // ── Admin: pause and resume new pieces ───────────────────────────
+
+  app.get("/api/admin/studio", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    res.json({
+      paused: state.paused,
+      spendHold: state.spendHold,
+      dailySpendCap: config.dailySpendCap,
+      spend24h: await q.spend24h(),
+      phase: state.phase,
+      currentPieceId: state.currentPieceId,
+    });
+  });
+
+  app.post("/api/admin/studio", async (req, res) => {
+    const user = await userFromRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
+    if (typeof req.body?.paused !== "boolean") return res.status(400).json({ error: "paused must be true or false" });
+    await setPaused(req.body.paused);
+    res.json({ paused: state.paused });
+  });
+
   // ── Curator's prerogative: sole discretion over iteration ─────────
 
   // Send a finished piece back to the studio, with optional direction.
@@ -127,7 +152,7 @@ export function buildServer() {
     const user = await userFromRequest(req);
     if (user?.role !== "admin") return res.status(403).json({ error: "admins only" });
     const note = String(req.body?.note ?? "").trim().slice(0, 1000) || null;
-    const piece = await q.curatorReiterate(Number(req.params.id), note);
+    const piece = await q.curatorReiterate(Number(req.params.id), note, config.maxIterations);
     if (!piece) return res.status(409).json({ error: "piece must be finished (approved/declined) to re-iterate" });
     emitStudio("curator.reiterate", piece.id, { title: piece.title, note });
     res.json(piece);
