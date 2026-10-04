@@ -41,7 +41,7 @@ a new piece on a fixed cadence. Its first works — including *Alchemy of the La
 |---|---|---|
 | **The Muse** | `claude-sonnet-5-5` | Writes the concept brief: one idea, a disciplined palette, concrete motion. Grounds briefs in real art-history research via Tavily when a key is present. |
 | **The Artisan** | `claude-opus-5-5` | Realizes the brief as a GLSL ES 3.00 shader, in the demoscene tradition. Streams its work token-by-token to the live studio floor. Repairs its own compile errors. |
-| **The Critic** | `claude-opus-5-5` | The gate. Examines 4 rendered frames (t = 0.8s → 15s), scores composition / color / motion / brief-fidelity, and issues a verdict: approve, revise with concrete notes, or — on the final iteration — decline. |
+| **The Critic** | `claude-opus-5-5` | The gate. Examines 4 rendered frames (t = 0.8s → 15s), scores composition / color / motion / brief-fidelity, and approves or sends the work back with concrete notes. It judges every draft blind to the round count; when the rounds run out, the studio hangs the strongest draft if it clears `ADMIT_FLOOR`, or declines the piece. |
 
 The models are configurable via environment; recast the ensemble however you like.
 
@@ -139,7 +139,8 @@ hand-written **calibration pieces** so the pipeline is visible end-to-end.
 | `AUTO_CREATE` / `AUTO_CREATE_INTERVAL_MIN` | Self-commissioning cadence (default: every 2 hours, ~12 pieces/day). |
 | `ARTISAN_EFFORT` | Reasoning effort for the Artisan (default `medium` — keeps it painting, not pondering). |
 | `CRITIC_EFFORT` | Reasoning effort for the Critic (default `high` — the gate judges carefully). |
-| `MAX_ITERATIONS` | Revision rounds before the Critic's final ruling (default 4). |
+| `MAX_ITERATIONS` | Revision rounds per piece (default 4). |
+| `ADMIT_FLOOR` | When the rounds run out without an approval, the strongest draft hangs if its overall score reaches this (default 6.5); otherwise the piece is declined. |
 
 ## The shader contract
 

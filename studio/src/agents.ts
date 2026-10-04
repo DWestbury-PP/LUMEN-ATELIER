@@ -6,7 +6,7 @@
 // The Critic is the gate. The Artisan never ships its own work.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { TAG_VOCABULARY, cleanTags } from "./tags.js";
+import { TAG_GROUPS, TAG_VOCABULARY, cleanTags } from "./tags.js";
 import { config } from "./config.js";
 import type { Research } from "./tavily.js";
 
@@ -27,6 +27,7 @@ export interface Brief {
 }
 
 export interface Critique {
+  /** "decline" appears only on critiques from before the loop owned that call. */
   verdict: "approve" | "revise" | "decline";
   scores: { composition: number; color: number; motion: number; fidelity: number; overall: number };
   critique: string;
@@ -153,6 +154,7 @@ Principles:
 - Describe MOTION concretely: what moves, how fast, what the piece feels like at second 2 vs second 15.
 - Name a genuine artistic reference (a movement, artist, or natural phenomenon) and say what to take from it.
 - Vary your output across commissions: sometimes geometric and austere, sometimes organic and lush, sometimes volumetric and atmospheric. Avoid defaulting to "swirling nebula".
+- Range across emotional registers as widely as across forms. Calm and contemplative is one register among many; the gallery also needs joy, wit, tension, menace, exuberance, and unease.
 - The medium is pure math — no textures, no images. Play to its strengths: precision, infinite detail, hypnotic motion.
 - Tag the brief with 3-6 terms from the gallery's vocabulary (mood, motion, palette, form, technique) so visitors can find the piece later. Choose only terms that clearly apply.
 - You stand in two lineages. The demoscene (raymarched volumes, mathematical spectacle) — and the generative-art tradition. Its house saints, and what to take from each: Joshua Davis (Praystation) — layered organic systems grown from seeded randomness, bold flat color; Erik Natzke — thousands of translucent painterly strokes accumulating into blooms and color fields, paintings that feel hand-made by an algorithm; Jared Tarbell (Complexification) — emergence from tiny rules: substrate crack lattices, sand-grain light trails, crystalline growth. Also Vera Molnár's disciplined variation, Casey Reas's processes, Tyler Hobbs's flow fields. Remember: a great piece is a SYSTEM with beautiful rules — variation that feels alive rather than random. Some briefs should ask for grown compositions, not carved ones.`;
@@ -216,6 +218,39 @@ export interface RecentWork {
   reference: string | null;
   palette: unknown;
   mood: string | null;
+  tags?: string[] | null;
+}
+
+// The registers the recent body of work already occupies, e.g.
+// "meditative (8 of 12), organic (6 of 12)". Only tags on at least a third
+// of the pieces count as territory already covered.
+function coveredTerritory(recentWork: RecentWork[]): string | null {
+  const counts = new Map<string, number>();
+  for (const w of recentWork) for (const t of w.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1);
+  const n = recentWork.length;
+  const common = [...counts.entries()]
+    .filter(([, c]) => c >= Math.max(2, n / 3))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  return common.length ? common.map(([t, c]) => `${t} (${c} of ${n})`).join(", ") : null;
+}
+
+// A starting point for a self-directed piece, drawn by code rather than left
+// to the Muse: given the same context, a model converges on one "obvious"
+// direction, so the dice keep the collection wide. Each mood and form is
+// weighted by 1 / (1 + its count in recent work), so covered ground is
+// rarely drawn but never impossible.
+function drawFrom(options: readonly string[], counts: Map<string, number>): string {
+  const weights = options.map((o) => 1 / (1 + (counts.get(o) ?? 0)));
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < options.length; i++) if ((r -= weights[i]) <= 0) return options[i];
+  return options[options.length - 1];
+}
+
+export function drawDirection(recentWork: RecentWork[]): { mood: string; form: string } {
+  const counts = new Map<string, number>();
+  for (const w of recentWork) for (const t of w.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1);
+  return { mood: drawFrom(TAG_GROUPS.mood, counts), form: drawFrom(TAG_GROUPS.form, counts) };
 }
 
 export async function muse(
@@ -226,16 +261,22 @@ export async function muse(
 ): Promise<Brief> {
   const parts: string[] = [];
   if (recentWork.length > 0) {
+    const covered = coveredTerritory(recentWork);
     parts.push(
-      `## The studio's recent work — DO NOT repeat it\n` +
+      `## The studio's recent work\n` +
       recentWork.map((w) => `- "${w.title}" — after ${w.reference}; palette ${JSON.stringify(w.palette)}; mood: ${w.mood}`).join("\n") +
-      `\nYour brief must break from this body of work: a different structural motif (if recent pieces lean on grids/lattices, go organic, volumetric, figurative-abstract, or particulate), a palette family not used above, and a different emotional register. Repetition is the studio's greatest enemy.`
+      (covered ? `\nThe most common tags across these pieces: ${covered}. Treat that as territory the gallery has already covered.` : "") +
+      `\nVisitors see the gallery as a whole, so this brief should stand apart from these pieces: a different structural motif (if recent pieces lean on grids or lattices, go organic, volumetric, figurative-abstract, or particulate), a palette family not used above, and a different emotional register.`
     );
   }
   if (theme) {
     parts.push(`A visitor has commissioned a piece. Their theme: "${theme}". Honor the spirit of the request while applying your own artistic judgment.`);
   } else {
-    parts.push(`This is a self-directed piece — no commission. Choose a direction you haven't explored recently and commit to it fully.`);
+    const d = drawDirection(recentWork);
+    parts.push(
+      `This is a self-directed piece — no commission. The studio drew its starting point: a ${d.mood} mood, and ${d.form} form. ` +
+      `Build the piece from there, interpreting both words freely, and commit to it fully.`
+    );
   }
   if (research) {
     parts.push(`Your research wing pulled these notes on "${research.subject}":\n${research.notes.map((n) => `- ${n}`).join("\n")}\nGround the brief in what these sources actually describe.`);
@@ -277,8 +318,8 @@ export async function muse(
 
 const ARTISAN_SYSTEM = `You are the Artisan of Lumen Atelier — a shader artist in the demoscene tradition. You realize concept briefs as real-time GLSL fragment shaders. Your work hangs in a public gallery, rendered live in visitors' browsers.
 
-## The shader contract (hard requirements)
-Your shader MUST compile as GLSL ES 3.00 with exactly this interface:
+## The shader contract
+The same source runs in a headless renderer and in visitors' WebGL2 browsers, so it has to compile as GLSL ES 3.00 with exactly this interface:
 
 #version 300 es
 precision highp float;
@@ -287,31 +328,34 @@ uniform float iTime;        // seconds since the piece started
 out vec4 fragColor;
 void main() { ... fragColor = vec4(color, 1.0); }
 
-- The FIRST line must be "#version 300 es" (no blank line before it).
-- No textures, samplers, buffers, or external assets. Pure math only.
-- No compute outside what a fragment shader can do. No #include, no #extension.
+"#version 300 es" is the very first line, with nothing before it. Pure math only: no textures, samplers, buffers, #include, or #extension.
 
-## Working tempo
-You are a craftsman who thinks with his hands. Plan briefly — a few lines on structure, palette math, and motion — then WRITE THE SHADER. Do not re-derive decisions you have already made, second-guess working approaches, or explore alternatives you will not use. This studio runs a draft-critique loop: your draft will be rendered and critiqued, and you will get revision rounds. A strong attempt shipped now beats a perfect plan deliberated at length — deliberation is the expensive part, drafts are cheap.
+## How the studio works
+Each draft is rendered, and the Critic judges frames sampled across its first fifteen seconds. You get several rounds: a revision request comes back with the Critic's critique and the shader it judged. The Critic's view of the real pixels is better evidence than any plan, so put your effort into a complete, committed draft.
 
 ## Craft standards
-- The piece must MOVE. Compare mentally what it looks like at t=1s and t=15s — visibly different, continuously evolving, never a static image with a shimmer.
-- Honor the brief's palette. Build colors from the given hex values; do not drift into generic rainbow/plasma coloring.
-- Composition matters: a focal point, depth or layering, deliberate negative space. Full-frame noise is not a composition.
-- Performance: this runs at 60fps on integrated GPUs. Raymarch loops ≤ 100 steps, avoid nested marches, prefer analytic/2.5D techniques when the brief allows.
-- Banding: dither or add subtle grain when working with slow gradients.
-- Write ORIGINAL work. You know the classic techniques (SDF raymarching, fbm/domain warping, IQ cosine palettes, polar tiling, gyroids) — compose them freshly for this brief.
-- You also carry the generative-art lineage, and you know how to EVOKE its masters in a single-pass fragment shader: Joshua Davis — layered shape families scattered by seeded hash, phyllotaxis/superformula forms, rotational symmetry broken by jitter, bold flat color; Erik Natzke — painterly accumulation (many translucent stroke-like forms layered with alpha, colors drawn from one tight gradient, edges soft as loaded brushes); Jared Tarbell — emergence (crack lattices via iterated voronoi edges, sand-painting glow via accumulated quasi-random trails, structures that read as GROWN). Motion always with natural easing (ease-in-out, overshoot, drift) rather than raw sin(t). When the brief calls for organic compositions, build a SYSTEM of repeated elements with per-element variation — not a single monolithic field.
+- The piece must move: what a viewer sees at second 1 and second 15 should be visibly different, and the change continuous, never a static image with a shimmer.
+- Build colors from the brief's hex values. Generic rainbow or plasma coloring breaks the brief.
+- Composition: a focal point, depth or layering, deliberate negative space. Full-frame noise is not a composition.
+- Performance: it runs at 60fps on integrated GPUs, so keep raymarch loops to 100 steps or fewer, avoid nested marches, and prefer analytic or 2.5D techniques where the brief allows.
+- Dither or add subtle grain over slow gradients to prevent banding.
+- Write original work. You know the classic techniques (SDF raymarching, fbm/domain warping, IQ cosine palettes, polar tiling, gyroids) — compose them freshly for this brief.
+- You also carry the generative-art lineage, and you know how to evoke its masters in a single-pass fragment shader: Joshua Davis — layered shape families scattered by seeded hash, phyllotaxis/superformula forms, rotational symmetry broken by jitter, bold flat color; Erik Natzke — painterly accumulation (many translucent stroke-like forms layered with alpha, colors drawn from one tight gradient, edges soft as loaded brushes); Jared Tarbell — emergence (crack lattices via iterated voronoi edges, sand-painting glow via accumulated quasi-random trails, structures that read as grown). Motion with natural easing (ease-in-out, overshoot, drift) rather than raw sin(t). When the brief calls for organic compositions, build a system of repeated elements with per-element variation, not a single monolithic field.
 
 ## Output format
-First, 2-4 sentences of artist's notes: your interpretation and the key technique. PROSE ONLY — never put code, snippets, or backticks in the notes. Then EXACTLY ONE fenced code block, and nothing after it:
+Code parses your reply, and visitors watch it stream live on the studio floor. Write 2-4 sentences of artist's notes in prose — your interpretation and the key technique, with no code in them — then the complete shader as a single glsl code block, with nothing after it:
 
 \`\`\`glsl
 #version 300 es
 ...
 \`\`\`
 
-The opening fence must stand alone on its own line; the very next line must be #version 300 es. Write the shader as ONE continuous, complete block — never split it into sections with commentary between, never show a draft and then a rewrite. One block, final code only.`;
+The opening fence stands on its own line, and #version 300 es is the line after it.`;
+
+/** The attempt with the highest overall score; the latest one wins ties. */
+export function bestAttempt<T extends { critique: Critique }>(attempts: T[]): T {
+  return attempts.reduce((best, a) => (a.critique.scores.overall >= best.critique.scores.overall ? a : best));
+}
 
 export interface ArtisanContext {
   brief: Brief;
@@ -334,13 +378,20 @@ export async function artisan(
   }
 
   if (ctx.priorAttempts.length > 0) {
+    // Revise from the strongest draft so far, not merely the latest: a
+    // revision that chased the critique away from the brief is a dead end.
     const last = ctx.priorAttempts[ctx.priorAttempts.length - 1];
+    const best = bestAttempt(ctx.priorAttempts);
+    const regressed = best !== last
+      ? `A later revision moved away from this draft and scored lower (overall ${last.critique.scores.overall} against ${best.critique.scores.overall}). The Critic said of it: "${last.critique.critique}" Build from the shader below, not from that one.\n\n`
+      : "";
     parts.push(
-      `## Revision requested\nThe Critic reviewed your previous version and requests changes.\n\n` +
-      `Critique: ${last.critique.critique}\n` +
-      `Suggestions:\n${last.critique.suggestions.map((s) => `- ${s}`).join("\n")}\n\n` +
-      `Your previous shader:\n\`\`\`glsl\n${last.glsl}\n\`\`\`\n\n` +
-      `Revise decisively — address the critique, keep what works. Output the complete new shader.`
+      `## Revision requested\nThe Critic reviewed ${best !== last ? "your strongest draft so far" : "your previous draft"} and asked for changes.\n\n` +
+      `Critique: ${best.critique.critique}\n` +
+      `Suggestions:\n${best.critique.suggestions.map((s) => `- ${s}`).join("\n")}\n\n` +
+      regressed +
+      `The shader it judged:\n\`\`\`glsl\n${best.glsl}\n\`\`\`\n\n` +
+      `The brief is the target; the critique is evidence of how far this draft is from it. Keep what the Critic praised, fix what it names, and where a suggestion would pull the piece away from the brief, follow the brief. Output the complete new shader.`
     );
   } else {
     parts.push(`## Task\nRealize this brief as a shader. This is the first draft.`);
@@ -348,7 +399,7 @@ export async function artisan(
 
   if (ctx.compileError) {
     parts.push(
-      `## COMPILE ERROR — fix required\nYour shader failed to compile. Fix it and output the complete corrected shader.\n\n` +
+      `## Compile error\nThis shader failed to compile. Fix it and output the complete corrected shader.\n\n` +
       `Error log:\n${ctx.compileError.log}\n\n` +
       `The failing shader:\n\`\`\`glsl\n${ctx.compileError.glsl}\n\`\`\``
     );
@@ -434,31 +485,30 @@ export async function artisan(
 
 // ── The Critic ───────────────────────────────────────────────────────
 
-const CRITIC_SYSTEM = `You are the Critic of Lumen Atelier — the sole gatekeeper of the gallery. You review real-time shader artworks by LOOKING at actual rendered frames. Your standards are those of a serious gallery: most first drafts need revision.
+const CRITIC_SYSTEM = `You are the Critic of Lumen Atelier — the gatekeeper of its gallery. You review real-time shader artworks by looking at actual rendered frames, exactly what gallery visitors will see, and you hold the standard of a serious gallery.
 
-You are shown 4 frames captured at t=0.8s, 3.5s, 8.2s, and 15.0s. What you see is exactly what gallery visitors will see.
+You are shown 4 frames captured at t=0.8s, 3.5s, 8.2s, and 15.0s.
 
 Judge four dimensions (0-10):
 - composition: focal point, depth, use of space. Full-frame undifferentiated texture scores low.
 - color: palette discipline and harmony, fidelity to the brief's palette. Muddy or generic rainbow coloring scores low.
-- motion: compare the 4 frames. If they are nearly identical, the piece is static — score ≤ 3 and demand motion. Good pieces evolve visibly across the timestamps.
+- motion: compare the 4 frames. If they are nearly identical, the piece is static — score 3 or lower and ask for motion. Good pieces evolve visibly across the timestamps.
 - fidelity: does it realize the brief's concept, or is it a generic effect wearing the brief's title?
 
-overall is your holistic judgment (not an average).
+overall is your holistic judgment, not an average. Score what is in the frames, on a scale that means the same thing for every draft you see: 7.5 or above is a piece you would hang.
 
 Verdicts:
-- "approve" — gallery-worthy. Typically overall ≥ 7.5. Approve strong work; do not nitpick a piece that succeeds.
-- "revise" — has promise, needs specific changes. Give concrete, actionable suggestions an artist can execute (e.g. "the focal spiral occupies <10% of frame; scale it 3x and darken the field behind it"), not vague encouragement.
-- "decline" — only allowed when you are told this is the FINAL iteration. It means the piece should not enter the gallery.
+- "approve" — gallery-worthy as it stands. Approve strong work; don't hold back a piece that succeeds for the sake of small refinements.
+- "revise" — not yet gallery-worthy. Give concrete, actionable suggestions an artist can execute (e.g. "the focal spiral occupies <10% of frame; scale it 3x and darken the field behind it"), not vague encouragement, and say what is working so the artist keeps it.
 
 Watch for craft failures: color banding in gradients, harsh aliasing, dead black regions with no detail, oversaturated bloom, obvious tiling artifacts. Name them when you see them.
 
-Be honest and specific. Your critique is public — visitors read the studio's process.`;
+Your critique is public: visitors read it beside the piece. Write it as one short paragraph of 2-5 sentences, honest and specific, and put individual fixes in suggestions rather than in the critique.`;
 
 const CRITIC_SCHEMA = {
   type: "object",
   properties: {
-    verdict: { type: "string", enum: ["approve", "revise", "decline"] },
+    verdict: { type: "string", enum: ["approve", "revise"] },
     scores: {
       type: "object",
       properties: {
@@ -493,15 +543,15 @@ function frameBlocks(frames: string[]): Anthropic.ContentBlockParam[] {
   return blocks;
 }
 
+// The Critic judges each draft on its merits alone: it is not told which
+// iteration it is looking at. Deciding what happens when the revision budget
+// runs out belongs to the loop, not to the Critic's scores.
 export async function critic(args: {
   brief: Brief;
   frames: string[];
-  iteration: number;
-  maxIterations: number;
   artisanNotes: string;
   curatorNote?: string | null;
 }): Promise<Critique> {
-  const isFinal = args.iteration >= args.maxIterations - 1;
   const content: Anthropic.ContentBlockParam[] = [
     {
       type: "text",
@@ -511,11 +561,7 @@ export async function critic(args: {
           ? `## The curator's direction\nThe human curator personally sent this piece back with direction — judge fidelity to it as seriously as fidelity to the brief:\n"${args.curatorNote}"\n\n`
           : "") +
         `## Artist's notes\n${args.artisanNotes || "(none)"}\n\n` +
-        `## Review context\nThis is iteration ${args.iteration + 1} of at most ${args.maxIterations}.` +
-        (isFinal
-          ? ` THIS IS THE FINAL ITERATION — no further revision is possible. Your verdict must be "approve" or "decline". Approve if it is gallery-worthy even if imperfect; decline only if it genuinely fails.`
-          : ` If the piece needs work, request a revision with concrete suggestions.`) +
-        `\n\nThe rendered frames follow.`,
+        `The rendered frames follow.`,
     },
     ...frameBlocks(args.frames),
   ];
@@ -529,9 +575,7 @@ export async function critic(args: {
     messages: [{ role: "user", content }],
   });
   record(config.models.critic, msg.usage);
-  const critique = parseJson<Critique>(textOrThrow(msg, "Critic"), "Critic");
-  if (isFinal && critique.verdict === "revise") critique.verdict = "decline";
-  return critique;
+  return parseJson<Critique>(textOrThrow(msg, "Critic"), "Critic");
 }
 
 // ── Finalization: title & artist statement ──────────────────────────
@@ -550,6 +594,7 @@ export async function finalize(args: {
   brief: Brief;
   glsl: string;
   critiqueHistory: Critique[];
+  hungCritique?: Critique;
   existingTitles?: (string | null)[];
 }): Promise<{ title: string; statement: string }> {
   const msg = await client.messages.create({
@@ -566,7 +611,7 @@ export async function finalize(args: {
       content:
         `Brief:\n${JSON.stringify(args.brief, null, 2)}\n\n` +
         `Revisions it went through: ${args.critiqueHistory.length}\n` +
-        `Final critique: ${args.critiqueHistory[args.critiqueHistory.length - 1]?.critique ?? "(approved on first view)"}\n\n` +
+        `The Critic on the version that hangs: ${args.hungCritique?.critique ?? "(approved on first view)"}\n\n` +
         `Titles already hanging in the gallery (your title must not echo their words or cadence):\n` +
         (args.existingTitles ?? []).filter(Boolean).map((t) => `- ${t}`).join("\n"),
     }],
