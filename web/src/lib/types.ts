@@ -73,6 +73,10 @@ export interface StudioStatus {
   maxIterations: number;
   /** Present and paused when the API account is out of credits. */
   billing?: { paused: boolean; retryAt: string } | null;
+  /** The curator has paused new pieces. */
+  paused?: boolean;
+  /** The daily spend cap is holding new pieces. */
+  spendHold?: boolean;
 }
 
 export interface StudioEvent {

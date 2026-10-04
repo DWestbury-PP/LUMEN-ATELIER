@@ -140,6 +140,7 @@ hand-written **calibration pieces** so the pipeline is visible end-to-end.
 | `ARTISAN_EFFORT` | Reasoning effort for the Artisan (default `medium` — keeps it painting, not pondering). |
 | `CRITIC_EFFORT` | Reasoning effort for the Critic (default `high` — the gate judges carefully). |
 | `MAX_ITERATIONS` | Revision rounds per piece (default 4). |
+| `DAILY_SPEND_CAP` | No new piece starts while the last 24 hours' model spend is at or above this many USD (default 5; `0` turns it off). The piece in progress always finishes. |
 | `ADMIT_FLOOR` | When the rounds run out without an approval, the strongest draft hangs if its overall score reaches this (default 6.5); otherwise the piece is declined. |
 
 ## The shader contract

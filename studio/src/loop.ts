@@ -15,7 +15,7 @@ import { cleanTags } from "./tags.js";
 
 const COMPILE_RETRIES = 3;
 // How long the studio rests after learning the API account is out of credits.
-const BILLING_RETRY_MIN = Number(process.env.BILLING_RETRY_MIN || 30);
+const BILLING_RETRY_MIN = config.billingRetryMin;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface StudioState {
@@ -26,6 +26,10 @@ export interface StudioState {
   phaseSince: string;
   /** Epoch ms until which the loop rests because the API account is out of credits. */
   billingHoldUntil: number | null;
+  /** The curator paused new pieces. Persisted in studio_settings. */
+  paused: boolean;
+  /** 24h spend has reached config.dailySpendCap; no new piece starts. */
+  spendHold: boolean;
 }
 
 export const state: StudioState = {
@@ -35,7 +39,39 @@ export const state: StudioState = {
   phase: "idle",
   phaseSince: new Date().toISOString(),
   billingHoldUntil: null,
+  paused: false,
+  spendHold: false,
 };
+
+/** Pause or resume new pieces. The piece in progress, if any, finishes. */
+export async function setPaused(paused: boolean): Promise<void> {
+  await q.setSetting("paused", paused);
+  state.paused = paused;
+  emitStudio(paused ? "studio.paused" : "studio.resumed", null, {});
+}
+
+type Ledger = ReturnType<typeof summarizeUsage>;
+
+// A piece's ledger accumulates across every run it gets: resumes after a
+// restart or a billing outage, and curator send-backs.
+function mergeLedgers(prior: Ledger | null, run: Ledger): Ledger {
+  if (!prior || typeof prior.cost_usd !== "number") return run;
+  const by_model = { ...(prior.by_model ?? {}) };
+  for (const [m, v] of Object.entries(run.by_model)) {
+    const p = by_model[m] ?? { calls: 0, input: 0, output: 0, cost_usd: 0 };
+    by_model[m] = {
+      calls: p.calls + v.calls, input: p.input + v.input, output: p.output + v.output,
+      cost_usd: Math.round((p.cost_usd + v.cost_usd) * 10000) / 10000,
+    };
+  }
+  return {
+    calls: prior.calls + run.calls,
+    input_tokens: prior.input_tokens + run.input_tokens,
+    output_tokens: prior.output_tokens + run.output_tokens,
+    cost_usd: Math.round((prior.cost_usd + run.cost_usd) * 10000) / 10000,
+    by_model,
+  };
+}
 
 function setPhase(phase: string, pieceId: number | null = state.currentPieceId) {
   state.phase = phase;
@@ -43,10 +79,27 @@ function setPhase(phase: string, pieceId: number | null = state.currentPieceId) 
   emitStudio("studio.phase", pieceId, { phase, since: state.phaseSince });
 }
 
+// Every call this run makes is recorded on the piece after each round and
+// however the run ends — errors and billing outages included — so the
+// 24h spend the cap reads never misses money that was actually spent.
 async function composePiece(piece: PieceRow): Promise<void> {
+  resetUsageTally();
+  const prior = (piece.ledger ?? null) as Ledger | null;
+  const persist = async (): Promise<Ledger> => {
+    const ledger = mergeLedgers(prior, summarizeUsage());
+    await q.setPieceLedger(piece.id, ledger).catch(() => {});
+    return ledger;
+  };
+  try {
+    await composeRun(piece, persist);
+  } finally {
+    await persist();
+  }
+}
+
+async function composeRun(piece: PieceRow, persist: () => Promise<Ledger>): Promise<void> {
   const id = piece.id;
   state.currentPieceId = id;
-  resetUsageTally();
   await q.setStatus(id, "composing");
   emitStudio("piece.started", id, { theme: piece.theme, patron: piece.patron });
 
@@ -71,20 +124,36 @@ async function composePiece(piece: PieceRow): Promise<void> {
   }
 
   // 2 — Draft / render / critique loop
+  // The round allowance. A piece may reach `budget` drafts in total; the
+  // current allowance began at `windowStart`. A restart or billing resume
+  // gets only what is left of it, so a crash can never buy more rounds. A
+  // curator send-back raises the budget (q.curatorReiterate).
   const attempts: { critique: Critique; glsl: string; idx?: number }[] = [];
   const critiqueHistory: Critique[] = [];
   const idxBase = await q.nextIterationIdx(id);
-  if (idxBase > 0) {
+  const budget = piece.round_budget ?? config.maxIterations;
+  const windowStart = Math.max(0, budget - config.maxIterations);
+  const rounds = Math.max(0, budget - idxBase);
+  for (const it of await q.critiquedIterationsFrom(id, windowStart)) {
+    const c = it.critique as Critique;
+    attempts.push({ critique: c, glsl: it.glsl, idx: it.idx });
+    critiqueHistory.push(c);
+  }
+  if (attempts.length === 0 && idxBase > 0) {
+    // A fresh allowance after a send-back: the last judged draft is the
+    // Artisan's starting point, but it was already decided, so it is not
+    // a candidate to hang.
     const last = await q.lastCritiquedIteration(id);
     if (last?.critique) attempts.push({ critique: last.critique as Critique, glsl: last.glsl });
   }
+  if (idxBase > windowStart) emitStudio("piece.resumed", id, { drafts: idxBase - windowStart, remaining: rounds });
   let approvedGlsl: string | null = null;
   let hungCritique: Critique | undefined;
-  let iterationsUsed = 0;
+  let iterationsUsed = idxBase - windowStart;
   let parked = false;
 
-  for (let iter = 0; iter < config.maxIterations; iter++) {
-    iterationsUsed = iter + 1;
+  for (let iter = 0; iter < rounds; iter++) {
+    iterationsUsed = idxBase - windowStart + iter + 1;
     setPhase("drafting");
     emitStudio("artisan.started", id, { iteration: idxBase + iter });
 
@@ -152,6 +221,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
       glsl: draft.glsl, artisanNotes: draft.notes, compileOk: true,
       compileLog: null, frames: render.frames, critique: verdict,
     });
+    await persist();
     emitStudio("critic.verdict", id, { iteration: idxBase + iter, verdict });
 
     if (verdict.verdict === "approve") {
@@ -191,8 +261,7 @@ async function composePiece(piece: PieceRow): Promise<void> {
     emitStudio("piece.declined", id, { iterations: iterationsUsed });
   }
   await q.clearCuratorNote(id).catch(() => {});
-  const ledger = summarizeUsage();
-  await q.setPieceLedger(id, ledger).catch(() => {});
+  const ledger = await persist();
   emitStudio("studio.ledger", id, { cost_usd: ledger.cost_usd, output_tokens: ledger.output_tokens, calls: ledger.calls });
 }
 
@@ -208,6 +277,7 @@ async function maybeAutoCreate(): Promise<PieceRow | null> {
 
 export async function studioLoop(): Promise<void> {
   state.running = true;
+  state.paused = (await q.getSetting<boolean>("paused").catch(() => null)) ?? false;
   // Recover orphans: a restart mid-composition leaves pieces stuck in
   // 'composing' with no worker. Re-queue them so the loop picks them up
   // fresh. (Single-worker studio, so anything 'composing' at boot is dead.)
@@ -228,6 +298,24 @@ export async function studioLoop(): Promise<void> {
       if (state.billingHoldUntil) {
         if (Date.now() < state.billingHoldUntil) { await sleep(30_000); continue; }
         state.billingHoldUntil = null; // the rest is over — try again
+      }
+      // The curator's pause and the daily spend cap both hold new work; a
+      // piece already in progress always finishes first.
+      if (state.paused) { await sleep(10_000); continue; }
+      if (config.dailySpendCap > 0) {
+        const spent = (await q.spend24h()).cost_usd;
+        if (spent >= config.dailySpendCap) {
+          if (!state.spendHold) {
+            state.spendHold = true;
+            emitStudio("studio.spend_cap", null, { spent, cap: config.dailySpendCap });
+          }
+          await sleep(60_000);
+          continue;
+        }
+        if (state.spendHold) {
+          state.spendHold = false;
+          emitStudio("studio.spend_resumed", null, { spent, cap: config.dailySpendCap });
+        }
       }
       let piece = await q.nextQueued();
       if (!piece) piece = await maybeAutoCreate();
